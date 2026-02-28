@@ -1,7 +1,6 @@
 streamlit
 pandas
 numpy
-st-gsheets-connection
 fpdf2
 matplotlib
 streamlit-image-coordinates
