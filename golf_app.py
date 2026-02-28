@@ -80,8 +80,13 @@ def create_pdf(df):
             b = len(sub[sub['d'] <= rb])
             p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
             pdf.cell(190, 8, txt=f"{r}m: {tot} Shots | Birdies: {b} | Pars: {p}", ln=True)
-    return pdf.output()
-
+            
+    # THE FIX: Force the output into raw bytes for Streamlit
+    pdf_out = pdf.output()
+    if isinstance(pdf_out, str):
+        return pdf_out.encode('latin-1') # Handles older PDF tool versions
+    return bytes(pdf_out) # Handles newer PDF tool versions
+    
 # --- 5. SMART NAVIGATION LOGIC ---
 if 'page' not in st.session_state: st.session_state.page = "Home"
 if 'active_t' not in st.session_state: st.session_state.active_t = None
