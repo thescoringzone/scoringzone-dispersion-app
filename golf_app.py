@@ -12,7 +12,6 @@ from supabase import create_client, Client
 # --- 1. APP CONFIG & SECRETS ---
 st.set_page_config(page_title="Golf Dispersion Elite", layout="wide")
 
-# Connect to the Supabase Vault
 @st.cache_resource
 def init_connection():
     url = st.secrets["supabase"]["url"]
@@ -21,7 +20,6 @@ def init_connection():
 
 supabase = init_connection()
 
-# Fetch data directly from the vault
 def load_data():
     response = supabase.table("shots").select("*").execute()
     if response.data:
@@ -32,7 +30,6 @@ def load_data():
 if 'data' not in st.session_state:
     st.session_state.data = load_data()
 
-# Helper for circles
 def get_radii(label):
     if "50-100" in label: return 3, 6
     if "101-150" in label: return 4, 8
@@ -67,7 +64,8 @@ def create_target_image(df_filtered, label):
         df = df_filtered.copy()
         df['dist'] = np.sqrt(df['X']**2 + df['Y']**2)
         colors = df['dist'].apply(lambda d: 'red' if d <= r_b else ('blue' if d <= r_p else 'black'))
-        ax.scatter(df['X'], df['Y'], c=colors, s=130, edgecolors='white', linewidths=1.5, zorder=5)
+        # DOT SIZE CUT BY 50% (s=65)
+        ax.scatter(df['X'], df['Y'], c=colors, s=65, edgecolors='white', linewidths=1.5, zorder=5)
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
@@ -105,7 +103,7 @@ if 'active_t' not in st.session_state: st.session_state.active_t = None
 st.sidebar.title("🧭 Menu")
 if st.sidebar.button("🏠 Home", use_container_width=True):
     st.session_state.page = "Home"
-    st.session_state.data = load_data() # Refresh from database
+    st.session_state.data = load_data()
 
 if st.session_state.active_t:
     if st.sidebar.button(f"🎯 Edit: {st.session_state.active_t}", use_container_width=True):
@@ -144,20 +142,13 @@ if st.session_state.page == "Home":
                 st.session_state.page = "Record"
                 st.rerun()
             if c2.button("🗑️", key=f"del_{t}"):
-                # Delete from Supabase Database
                 supabase.table("shots").delete().eq("Tournament", t).execute()
                 if st.session_state.active_t == t:
                     st.session_state.active_t = None
-                st.session_state.data = load_data() # Refresh
+                st.session_state.data = load_data()
                 st.rerun()
-                
-    if not st.session_state.data.empty:
-        st.divider()
-        st.subheader("💾 Export Data")
-        pdf_file = create_pdf(st.session_state.data)
-        st.download_button("📄 Download PDF Report", data=pdf_file, file_name="golf_stats.pdf")
 
-# --- PAGE: RECORD (TOUCH + SUPABASE) ---
+# --- PAGE: RECORD ---
 elif st.session_state.page == "Record":
     st.button("⬅️ Back to Home", on_click=lambda: setattr(st.session_state, 'page', "Home"))
     st.title(f"Target: {st.session_state.active_t}")
@@ -179,19 +170,12 @@ elif st.session_state.page == "Record":
                 x_meters = round((px / 500.0) * (2 * limit) - limit, 2)
                 y_meters = round(limit - (py / 500.0) * (2 * limit), 2)
                 
-                # Push instantly to Supabase Vault
                 new_shot = {"Tournament": st.session_state.active_t, "Range": r_label, "X": x_meters, "Y": y_meters}
-                try:
-                    supabase.table("shots").insert(new_shot).execute()
-                    # Refresh data
-                    st.session_state.data = load_data()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"🚨 THE EXACT DATABASE ERROR IS: {e}")
-                    st.stop()
+                supabase.table("shots").insert(new_shot).execute()
+                st.session_state.data = load_data()
+                st.rerun()
             
             if not df_v.empty and st.button(f"Undo Last Shot", key=f"un_{r_label}"):
-                # Find the database ID of the very last shot and delete it
                 last_id = int(df_v.iloc[-1]['id'])
                 supabase.table("shots").delete().eq("id", last_id).execute()
                 st.session_state.data = load_data()
@@ -216,4 +200,26 @@ elif st.session_state.page == "Stats":
             tot = len(sub)
             b = len(sub[sub['d'] <= rb])
             p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
-            st.write(f"**{r}m:** {tot} Shots | Birdies: {b} | Pars: {p} | Bogeys: {tot-(b+p)}")
+            
+            # Quadrant Math for shots outside birdie circle
+            misses = sub[sub['d'] > rb]
+            ll = len(misses[(misses['X'] < 0) & (misses['Y'] > 0)])
+            lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
+            sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)])
+            sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
+            
+            st.subheader(f"⛳ {r}m Range")
+            st.write(f"**Total Shots:** {tot} | **Birdies:** {b} | **Pars:** {p} | **Bogeys:** {tot-(b+p)}")
+            
+            st.markdown("**Miss Tendencies (Outside Birdie Circle):**")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Long Left", f"{(ll/tot)*100:.0f}%")
+            col2.metric("Long Right", f"{(lr/tot)*100:.0f}%")
+            col3.metric("Short Left", f"{(sl/tot)*100:.0f}%")
+            col4.metric("Short Right", f"{(sr/tot)*100:.0f}%")
+            st.divider()
+            
+    if not st.session_state.data.empty:
+        st.subheader("💾 Export Report")
+        pdf_file = create_pdf(st.session_state.data)
+        st.download_button("📄 Download PDF Report", data=pdf_file, file_name="golf_stats.pdf")
