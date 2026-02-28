@@ -21,7 +21,7 @@ def init_connection():
 
 supabase = init_connection()
 
-# MODIFIED: Only loads data belonging to the current user
+# Only loads data belonging to the current user
 def load_data(current_user):
     response = supabase.table("shots").select("*").eq("User", current_user).execute()
     if response.data:
@@ -31,11 +31,9 @@ def load_data(current_user):
 
 # --- 2. USER PROFILE SIDEBAR ---
 st.sidebar.title("👤 My Profile")
-# This name is the 'key' that keeps data private
 input_user = st.sidebar.text_input("Enter Your Name:", value="Guest").strip()
 st.session_state.current_user = input_user if input_user else "Guest"
 
-# Refresh data whenever the user name changes
 if 'data' not in st.session_state or st.session_state.get('last_user') != st.session_state.current_user:
     st.session_state.data = load_data(st.session_state.current_user)
     st.session_state.last_user = st.session_state.current_user
@@ -45,7 +43,7 @@ def get_radii(label):
     if "101-150" in label: return 4, 8
     return 5, 10
 
-# --- 3. THE VISUAL ENGINE ---
+# --- 3. THE VISUAL ENGINE (WITH RADIUS LABELS) ---
 def create_target_image(df_filtered, label):
     r_b, r_p = get_radii(label)
     limit = r_p + 2 
@@ -65,6 +63,10 @@ def create_target_image(df_filtered, label):
     circle_p = patches.Circle((0, 0), r_p, linewidth=2, edgecolor='blue', facecolor='none')
     ax.add_patch(circle_b)
     ax.add_patch(circle_p)
+
+    # ADD RADIUS LABELS BACK IN
+    ax.text(0, r_b + 0.2, f"{r_b}m", color='blue', ha='center', va='bottom', fontsize=10, fontweight='bold')
+    ax.text(0, r_p + 0.2, f"{r_p}m", color='blue', ha='center', va='bottom', fontsize=10, fontweight='bold')
 
     if not df_filtered.empty:
         df = df_filtered.copy()
@@ -108,7 +110,7 @@ def create_one_page_pdf(df, title):
             sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
             stats_text = f"Shots: {tot} | Birdies: {b} | Pars: {p} | SL: {(sl/tot)*100:.0f}% LL: {(ll/tot)*100:.0f}% SR: {(sr/tot)*100:.0f}% LR: {(lr/tot)*100:.0f}%"
         else:
-            stats_text = "No shots recorded for this range."
+            stats_text = "No shots recorded."
             
         pdf.cell(190, 4, txt=stats_text, ln=True)
         img = create_target_image(sub, r)
@@ -150,7 +152,6 @@ if st.session_state.page == "Home":
                 st.session_state.page = "Record"
                 st.rerun()
     st.divider()
-    # Display tournaments only for this specific user name
     all_t = st.session_state.data['Tournament'].unique().tolist() if not st.session_state.data.empty else []
     for t in all_t:
         c1, c2 = st.columns([4, 1])
@@ -159,7 +160,6 @@ if st.session_state.page == "Home":
             st.session_state.page = "Record"
             st.rerun()
         if c2.button("🗑️", key=f"del_{t}"):
-            # Security check: Deletes only current user's entry
             supabase.table("shots").delete().eq("Tournament", t).eq("User", st.session_state.current_user).execute()
             st.session_state.data = load_data(st.session_state.current_user)
             st.rerun()
@@ -181,7 +181,6 @@ elif st.session_state.page == "Record":
                 _, limit = get_radii(r_label); limit += 2
                 x_m = round((px / 500.0) * (2 * limit) - limit, 2)
                 y_m = round(limit - (py / 500.0) * (2 * limit), 2)
-                # Adds User tag to the new shot row
                 supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Range": r_label, "X": x_m, "Y": y_m}).execute()
                 st.session_state.data = load_data(st.session_state.current_user); st.rerun()
             if not df_v.empty and st.button(f"Undo", key=f"un_{r_label}"):
