@@ -40,29 +40,24 @@ def get_radii(label):
 def create_target_image(df_filtered, label):
     r_b, r_p = get_radii(label)
     limit = r_p + 2 
-
     fig = plt.figure(figsize=(5, 5), dpi=100)
     ax = fig.add_axes([0, 0, 1, 1]) 
     ax.set_xlim(-limit, limit)
     ax.set_ylim(-limit, limit)
     ax.axis('off') 
-
     rect = patches.Rectangle((-limit, -limit), limit*2, limit*2, linewidth=4, edgecolor='black', facecolor='white')
     ax.add_patch(rect)
     ax.axhline(0, color='gray', linestyle='--', alpha=0.4)
     ax.axvline(0, color='gray', linestyle='--', alpha=0.4)
-
     circle_b = patches.Circle((0, 0), r_b, linewidth=2, edgecolor='blue', facecolor='#ADD8E6', alpha=0.4)
     circle_p = patches.Circle((0, 0), r_p, linewidth=2, edgecolor='blue', facecolor='none')
     ax.add_patch(circle_b)
     ax.add_patch(circle_p)
-
     if not df_filtered.empty:
         df = df_filtered.copy()
         df['dist'] = np.sqrt(df['X']**2 + df['Y']**2)
         colors = df['dist'].apply(lambda d: 'red' if d <= r_b else ('blue' if d <= r_p else 'black'))
         ax.scatter(df['X'], df['Y'], c=colors, s=65, edgecolors='white', linewidths=1.5, zorder=5)
-
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     buf.seek(0)
@@ -70,7 +65,7 @@ def create_target_image(df_filtered, label):
     plt.close(fig)
     return img
 
-# --- 3. SINGLE-PAGE PDF ENGINE ---
+# --- 3. COMPACT 1-PAGE PDF ENGINE ---
 def create_one_page_pdf(df, title):
     pdf = FPDF()
     pdf.add_page()
@@ -78,49 +73,42 @@ def create_one_page_pdf(df, title):
     pdf.cell(190, 8, txt=title, ln=True, align='C')
     pdf.ln(2)
     
-    # Grid Layout: 3 Ranges in one column
-    y_start = 25
-    for r in ["50-100", "101-150", "151-200"]:
+    # Standard Y positions for 3 images on one page
+    y_positions = [25, 90, 155]
+    ranges = ["50-100", "101-150", "151-200"]
+    
+    for r, y_val in zip(ranges, y_positions):
         sub = df[df['Range'] == r].copy()
-        
-        # Heading
+        pdf.set_xy(10, y_val)
         pdf.set_font("Arial", 'B', 10)
-        pdf.set_xy(10, y_start)
         pdf.cell(100, 5, txt=f"Range: {r}m", ln=True)
         
-        # Stats
         pdf.set_font("Arial", size=8)
         tot = len(sub)
         if tot > 0:
             sub['d'] = np.sqrt(sub['X']**2 + sub['Y']**2)
-            rb, rp = get_radii(r)
+            rb, _ = get_radii(r)
             b = len(sub[sub['d'] <= rb])
-            p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
+            p = len(sub[(sub['d'] > rb) & (sub['d'] <= get_radii(r)[1])])
             misses = sub[sub['d'] > rb]
             ll = len(misses[(misses['X'] < 0) & (misses['Y'] > 0)])
             lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
             sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)])
             sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
-            
             stats_text = f"Shots: {tot} | Birdies: {b} | Pars: {p} | SL: {(sl/tot)*100:.0f}% LL: {(ll/tot)*100:.0f}% SR: {(sr/tot)*100:.0f}% LR: {(lr/tot)*100:.0f}%"
         else:
-            stats_text = "No shots recorded for this range."
+            stats_text = "No shots recorded."
             
         pdf.cell(190, 4, txt=stats_text, ln=True)
-        
-        # Image (Smaller to fit 3 on one page)
         img = create_target_image(sub, r)
         temp_fn = f"temp_{r}.png"
         img.save(temp_fn)
-        pdf.image(temp_fn, x=70, y=pdf.get_y(), w=60)
-        
-        # Cleanup and increment Y
+        pdf.image(temp_fn, x=75, y=pdf.get_y()-2, w=55)
         if os.path.exists(temp_fn): os.remove(temp_fn)
-        y_start += 85 # Space between sections
         
     return bytes(pdf.output())
 
-# --- 4. NAVIGATION ---
+# --- 4. UI LOGIC ---
 if 'page' not in st.session_state: st.session_state.page = "Home"
 if 'active_t' not in st.session_state: st.session_state.active_t = None
 
@@ -133,7 +121,7 @@ if st.session_state.active_t:
     if st.sidebar.button(f"🎯 Edit: {st.session_state.active_t}", use_container_width=True):
         st.session_state.page = "Record"
 
-if st.sidebar.button("📊 Stats & Master", use_container_width=True):
+if st.sidebar.button("📊 Master Analytics", use_container_width=True):
     st.session_state.page = "Stats"
     st.session_state.data = load_data()
 
@@ -157,13 +145,12 @@ if st.session_state.page == "Home":
             st.rerun()
         if c2.button("🗑️", key=f"del_{t}"):
             supabase.table("shots").delete().eq("Tournament", t).execute()
-            st.session_state.data = load_data()
-            st.rerun()
+            st.session_state.data = load_data(); st.rerun()
 
 # --- PAGE: RECORD ---
 elif st.session_state.page == "Record":
-    st.button("⬅️ Back", on_click=lambda: setattr(st.session_state, 'page', "Home"))
-    st.title(f"Target: {st.session_state.active_t}")
+    st.button("⬅️ Home", on_click=lambda: setattr(st.session_state, 'page', "Home"))
+    st.title(f"Tournament: {st.session_state.active_t}")
     t_tabs = st.tabs(["50-100m", "101-150m", "151-200m"])
     for i, r_label in enumerate(["50-100", "101-150", "151-200"]):
         with t_tabs[i]:
@@ -186,8 +173,7 @@ elif st.session_state.page == "Record":
     if not t_df.empty:
         st.download_button("📄 Download 1-Page Tournament Report", 
                            data=create_one_page_pdf(t_df, f"Tournament: {st.session_state.active_t}"), 
-                           file_name=f"{st.session_state.active_t}_report.pdf", 
-                           on_click=lambda: st.toast("Download starting..."))
+                           file_name=f"{st.session_state.active_t}_report.pdf")
 
 # --- PAGE: STATS ---
 elif st.session_state.page == "Stats":
@@ -214,5 +200,4 @@ elif st.session_state.page == "Stats":
     if not st.session_state.data.empty:
         st.download_button("📄 Download 1-Page Master Report", 
                            data=create_one_page_pdf(st.session_state.data, "Master Performance Report"), 
-                           file_name="master_report.pdf",
-                           on_click=lambda: st.toast("Download starting..."))
+                           file_name="master_report.pdf")
