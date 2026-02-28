@@ -7,20 +7,38 @@ import matplotlib.patches as patches
 import io
 from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
+from supabase import create_client, Client
 
-# --- 1. APP CONFIG ---
+# --- 1. APP CONFIG & SECRETS ---
 st.set_page_config(page_title="Golf Dispersion Elite", layout="wide")
 
-# --- 2. LOCAL MEMORY STORAGE ---
-if 'data' not in st.session_state:
-    st.session_state.data = pd.DataFrame(columns=["Tournament", "Range", "X", "Y"])
+# Connect to the Supabase Vault
+@st.cache_resource
+def init_connection():
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
+    return create_client(url, key)
 
+supabase = init_connection()
+
+# Fetch data directly from the vault
+def load_data():
+    response = supabase.table("shots").select("*").execute()
+    if response.data:
+        return pd.DataFrame(response.data)
+    else:
+        return pd.DataFrame(columns=["id", "Tournament", "Range", "X", "Y"])
+
+if 'data' not in st.session_state:
+    st.session_state.data = load_data()
+
+# Helper for circles
 def get_radii(label):
     if "50-100" in label: return 3, 6
     if "101-150" in label: return 4, 8
     return 5, 10
 
-# --- 3. THE VISUAL ENGINE (IMAGE BASED TOUCH) ---
+# --- 2. THE VISUAL ENGINE ---
 def create_target_image(df_filtered, label):
     r_b, r_p = get_radii(label)
     limit = r_p + 2 
@@ -31,25 +49,20 @@ def create_target_image(df_filtered, label):
     ax.set_ylim(-limit, limit)
     ax.axis('off') 
 
-    # 1. The Rectangle Frame
     rect = patches.Rectangle((-limit, -limit), limit*2, limit*2, linewidth=4, edgecolor='black', facecolor='white')
     ax.add_patch(rect)
 
-    # 2. Crosshairs
     ax.axhline(0, color='gray', linestyle='--', alpha=0.4)
     ax.axvline(0, color='gray', linestyle='--', alpha=0.4)
 
-    # 3. Birdie & Par Circles
     circle_b = patches.Circle((0, 0), r_b, linewidth=2, edgecolor='blue', facecolor='#ADD8E6', alpha=0.4)
     circle_p = patches.Circle((0, 0), r_p, linewidth=2, edgecolor='blue', facecolor='none')
     ax.add_patch(circle_b)
     ax.add_patch(circle_p)
 
-    # 4. Metric Labels
     ax.text(0, r_b + 0.3, f"{r_b}m", color='blue', ha='center', va='bottom', fontsize=12, fontweight='bold')
     ax.text(0, r_p + 0.3, f"{r_p}m", color='blue', ha='center', va='bottom', fontsize=12, fontweight='bold')
 
-    # 5. Plot Recorded Shots
     if not df_filtered.empty:
         df = df_filtered.copy()
         df['dist'] = np.sqrt(df['X']**2 + df['Y']**2)
@@ -63,7 +76,7 @@ def create_target_image(df_filtered, label):
     plt.close(fig)
     return img, limit
 
-# --- 4. PDF ENGINE ---
+# --- 3. PDF ENGINE ---
 def create_pdf(df):
     pdf = FPDF()
     pdf.add_page()
@@ -81,31 +94,30 @@ def create_pdf(df):
             p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
             pdf.cell(190, 8, txt=f"{r}m: {tot} Shots | Birdies: {b} | Pars: {p}", ln=True)
             
-    # THE FIX: Force the output into raw bytes for Streamlit
     pdf_out = pdf.output()
-    if isinstance(pdf_out, str):
-        return pdf_out.encode('latin-1') # Handles older PDF tool versions
-    return bytes(pdf_out) # Handles newer PDF tool versions
-    
-# --- 5. SMART NAVIGATION LOGIC ---
+    if isinstance(pdf_out, str): return pdf_out.encode('latin-1')
+    return bytes(pdf_out)
+
+# --- 4. NAVIGATION LOGIC ---
 if 'page' not in st.session_state: st.session_state.page = "Home"
 if 'active_t' not in st.session_state: st.session_state.active_t = None
 
 st.sidebar.title("🧭 Menu")
-
-if st.sidebar.button("🏠 Home (Tournament List)", use_container_width=True):
+if st.sidebar.button("🏠 Home", use_container_width=True):
     st.session_state.page = "Home"
+    st.session_state.data = load_data() # Refresh from database
 
-# This button only appears if you have selected a tournament!
 if st.session_state.active_t:
     if st.sidebar.button(f"🎯 Edit: {st.session_state.active_t}", use_container_width=True):
         st.session_state.page = "Record"
 
 if st.sidebar.button("🌐 Master Sheet", use_container_width=True):
     st.session_state.page = "Master Sheet"
+    st.session_state.data = load_data()
 
 if st.sidebar.button("📊 Stats & Analytics", use_container_width=True):
     st.session_state.page = "Stats"
+    st.session_state.data = load_data()
 
 
 # --- PAGE: HOME ---
@@ -120,16 +132,8 @@ if st.session_state.page == "Home":
                 st.rerun()
 
     st.divider()
+    all_t = st.session_state.data['Tournament'].unique().tolist() if not st.session_state.data.empty else []
     
-    st.subheader("📂 Load Previous Data")
-    uploaded_file = st.file_uploader("Upload your saved CSV backup:", type="csv")
-    if uploaded_file is not None:
-        st.session_state.data = pd.read_csv(uploaded_file)
-        st.success("Master Sheet Restored successfully!")
-        
-    st.divider()
-    
-    all_t = st.session_state.data['Tournament'].unique().tolist()
     if not all_t:
         st.info("No tournaments yet. Create one above.")
     else:
@@ -140,27 +144,22 @@ if st.session_state.page == "Home":
                 st.session_state.page = "Record"
                 st.rerun()
             if c2.button("🗑️", key=f"del_{t}"):
-                st.session_state.data = st.session_state.data[st.session_state.data['Tournament'] != t]
-                # If you delete the active tournament, clear it from memory
+                # Delete from Supabase Database
+                supabase.table("shots").delete().eq("Tournament", t).execute()
                 if st.session_state.active_t == t:
                     st.session_state.active_t = None
+                st.session_state.data = load_data() # Refresh
                 st.rerun()
                 
     if not st.session_state.data.empty:
         st.divider()
-        st.subheader("💾 Backup Your Data")
-        st.info("⚠️ Data resets if you close the app. Tap Download CSV before you leave!")
-        
-        col1, col2 = st.columns(2)
+        st.subheader("💾 Export Data")
         pdf_file = create_pdf(st.session_state.data)
-        col1.download_button("📄 Download PDF", data=pdf_file, file_name="golf_stats.pdf")
-        
-        csv_file = st.session_state.data.to_csv(index=False).encode('utf-8')
-        col2.download_button("📊 Download CSV", data=csv_file, file_name="golf_data_backup.csv")
+        st.download_button("📄 Download PDF Report", data=pdf_file, file_name="golf_stats.pdf")
 
-# --- PAGE: RECORD (BULLETPROOF TOUCH) ---
+# --- PAGE: RECORD (TOUCH + SUPABASE) ---
 elif st.session_state.page == "Record":
-    st.button("⬅️ Back to Home List", on_click=lambda: setattr(st.session_state, 'page', "Home"))
+    st.button("⬅️ Back to Home", on_click=lambda: setattr(st.session_state, 'page', "Home"))
     st.title(f"Target: {st.session_state.active_t}")
     
     t_tabs = st.tabs(["50-100m", "101-150m", "151-200m"])
@@ -173,21 +172,26 @@ elif st.session_state.page == "Record":
             st.write("👆 **Tap inside the frame to record a shot.**")
             
             img_obj, limit = create_target_image(df_v, r_label)
-            
             value = streamlit_image_coordinates(img_obj, key=f"img_{r_label}_{len(df_v)}")
             
             if value is not None:
                 px, py = value['x'], value['y']
-                
                 x_meters = round((px / 500.0) * (2 * limit) - limit, 2)
                 y_meters = round(limit - (py / 500.0) * (2 * limit), 2)
                 
-                new_row = pd.DataFrame([{"Tournament": st.session_state.active_t, "Range": r_label, "X": x_meters, "Y": y_meters}])
-                st.session_state.data = pd.concat([st.session_state.data, new_row], ignore_index=True)
+                # Push instantly to Supabase Vault
+                new_shot = {"Tournament": st.session_state.active_t, "Range": r_label, "X": x_meters, "Y": y_meters}
+                supabase.table("shots").insert(new_shot).execute()
+                
+                # Refresh data
+                st.session_state.data = load_data()
                 st.rerun()
             
             if not df_v.empty and st.button(f"Undo Last Shot", key=f"un_{r_label}"):
-                st.session_state.data = st.session_state.data.drop(df_v.index[-1])
+                # Find the database ID of the very last shot and delete it
+                last_id = int(df_v.iloc[-1]['id'])
+                supabase.table("shots").delete().eq("id", last_id).execute()
+                st.session_state.data = load_data()
                 st.rerun()
 
 # --- PAGE: MASTER SHEET ---
