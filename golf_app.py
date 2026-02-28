@@ -21,22 +21,31 @@ def init_connection():
 
 supabase = init_connection()
 
-def load_data():
-    response = supabase.table("shots").select("*").execute()
+# MODIFIED: Only loads data belonging to the current user
+def load_data(current_user):
+    response = supabase.table("shots").select("*").eq("User", current_user).execute()
     if response.data:
         return pd.DataFrame(response.data)
     else:
-        return pd.DataFrame(columns=["id", "Tournament", "Range", "X", "Y"])
+        return pd.DataFrame(columns=["id", "User", "Tournament", "Range", "X", "Y"])
 
-if 'data' not in st.session_state:
-    st.session_state.data = load_data()
+# --- 2. USER PROFILE SIDEBAR ---
+st.sidebar.title("👤 My Profile")
+# This name is the 'key' that keeps data private
+input_user = st.sidebar.text_input("Enter Your Name:", value="Guest").strip()
+st.session_state.current_user = input_user if input_user else "Guest"
+
+# Refresh data whenever the user name changes
+if 'data' not in st.session_state or st.session_state.get('last_user') != st.session_state.current_user:
+    st.session_state.data = load_data(st.session_state.current_user)
+    st.session_state.last_user = st.session_state.current_user
 
 def get_radii(label):
     if "50-100" in label: return 3, 6
     if "101-150" in label: return 4, 8
     return 5, 10
 
-# --- 2. THE VISUAL ENGINE ---
+# --- 3. THE VISUAL ENGINE ---
 def create_target_image(df_filtered, label):
     r_b, r_p = get_radii(label)
     limit = r_p + 2 
@@ -70,7 +79,7 @@ def create_target_image(df_filtered, label):
     plt.close(fig)
     return img
 
-# --- 3. SINGLE-PAGE PDF ENGINE ---
+# --- 4. SINGLE-PAGE PDF ENGINE ---
 def create_one_page_pdf(df, title):
     pdf = FPDF()
     pdf.add_page()
@@ -78,17 +87,13 @@ def create_one_page_pdf(df, title):
     pdf.cell(190, 8, txt=title, ln=True, align='C')
     pdf.ln(2)
     
-    # Grid Layout: 3 Ranges in one column
     y_start = 25
     for r in ["50-100", "101-150", "151-200"]:
         sub = df[df['Range'] == r].copy()
-        
-        # Heading
         pdf.set_font("Arial", 'B', 10)
         pdf.set_xy(10, y_start)
         pdf.cell(100, 5, txt=f"Range: {r}m", ln=True)
         
-        # Stats
         pdf.set_font("Arial", size=8)
         tot = len(sub)
         if tot > 0:
@@ -101,33 +106,30 @@ def create_one_page_pdf(df, title):
             lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
             sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)])
             sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
-            
             stats_text = f"Shots: {tot} | Birdies: {b} | Pars: {p} | SL: {(sl/tot)*100:.0f}% LL: {(ll/tot)*100:.0f}% SR: {(sr/tot)*100:.0f}% LR: {(lr/tot)*100:.0f}%"
         else:
             stats_text = "No shots recorded for this range."
             
         pdf.cell(190, 4, txt=stats_text, ln=True)
-        
-        # Image (Smaller to fit 3 on one page)
         img = create_target_image(sub, r)
         temp_fn = f"temp_{r}.png"
         img.save(temp_fn)
         pdf.image(temp_fn, x=70, y=pdf.get_y(), w=60)
         
-        # Cleanup and increment Y
         if os.path.exists(temp_fn): os.remove(temp_fn)
-        y_start += 85 # Space between sections
+        y_start += 85 
         
     return bytes(pdf.output())
 
-# --- 4. NAVIGATION ---
+# --- 5. NAVIGATION ---
 if 'page' not in st.session_state: st.session_state.page = "Home"
 if 'active_t' not in st.session_state: st.session_state.active_t = None
 
+st.sidebar.divider()
 st.sidebar.title("🧭 Menu")
 if st.sidebar.button("🏠 Home", use_container_width=True):
     st.session_state.page = "Home"
-    st.session_state.data = load_data()
+    st.session_state.data = load_data(st.session_state.current_user)
 
 if st.session_state.active_t:
     if st.sidebar.button(f"🎯 Edit: {st.session_state.active_t}", use_container_width=True):
@@ -135,11 +137,11 @@ if st.session_state.active_t:
 
 if st.sidebar.button("📊 Stats & Master", use_container_width=True):
     st.session_state.page = "Stats"
-    st.session_state.data = load_data()
+    st.session_state.data = load_data(st.session_state.current_user)
 
 # --- PAGE: HOME ---
 if st.session_state.page == "Home":
-    st.header("🏌️‍♂️ My Tournaments")
+    st.header(f"🏌️‍♂️ {st.session_state.current_user}'s Tournaments")
     with st.expander("➕ New Tournament"):
         t_name = st.text_input("Name:")
         if st.button("Create & Open"):
@@ -148,6 +150,7 @@ if st.session_state.page == "Home":
                 st.session_state.page = "Record"
                 st.rerun()
     st.divider()
+    # Display tournaments only for this specific user name
     all_t = st.session_state.data['Tournament'].unique().tolist() if not st.session_state.data.empty else []
     for t in all_t:
         c1, c2 = st.columns([4, 1])
@@ -156,14 +159,17 @@ if st.session_state.page == "Home":
             st.session_state.page = "Record"
             st.rerun()
         if c2.button("🗑️", key=f"del_{t}"):
-            supabase.table("shots").delete().eq("Tournament", t).execute()
-            st.session_state.data = load_data()
+            # Security check: Deletes only current user's entry
+            supabase.table("shots").delete().eq("Tournament", t).eq("User", st.session_state.current_user).execute()
+            st.session_state.data = load_data(st.session_state.current_user)
             st.rerun()
 
 # --- PAGE: RECORD ---
 elif st.session_state.page == "Record":
     st.button("⬅️ Back", on_click=lambda: setattr(st.session_state, 'page', "Home"))
     st.title(f"Target: {st.session_state.active_t}")
+    st.caption(f"Recording as: **{st.session_state.current_user}**")
+    
     t_tabs = st.tabs(["50-100m", "101-150m", "151-200m"])
     for i, r_label in enumerate(["50-100", "101-150", "151-200"]):
         with t_tabs[i]:
@@ -175,23 +181,24 @@ elif st.session_state.page == "Record":
                 _, limit = get_radii(r_label); limit += 2
                 x_m = round((px / 500.0) * (2 * limit) - limit, 2)
                 y_m = round(limit - (py / 500.0) * (2 * limit), 2)
-                supabase.table("shots").insert({"Tournament": st.session_state.active_t, "Range": r_label, "X": x_m, "Y": y_m}).execute()
-                st.session_state.data = load_data(); st.rerun()
+                # Adds User tag to the new shot row
+                supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Range": r_label, "X": x_m, "Y": y_m}).execute()
+                st.session_state.data = load_data(st.session_state.current_user); st.rerun()
             if not df_v.empty and st.button(f"Undo", key=f"un_{r_label}"):
                 supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
-                st.session_state.data = load_data(); st.rerun()
+                st.session_state.data = load_data(st.session_state.current_user); st.rerun()
     
     st.divider()
     t_df = st.session_state.data[st.session_state.data['Tournament'] == st.session_state.active_t]
     if not t_df.empty:
         st.download_button("📄 Download 1-Page Tournament Report", 
-                           data=create_one_page_pdf(t_df, f"Tournament: {st.session_state.active_t}"), 
+                           data=create_one_page_pdf(t_df, f"Report: {st.session_state.active_t} ({st.session_state.current_user})"), 
                            file_name=f"{st.session_state.active_t}_report.pdf", 
                            on_click=lambda: st.toast("Download starting..."))
 
 # --- PAGE: STATS ---
 elif st.session_state.page == "Stats":
-    st.header("Master Analytics")
+    st.header(f"Analytics for {st.session_state.current_user}")
     for r in ["50-100", "101-150", "151-200"]:
         sub = st.session_state.data[st.session_state.data['Range'] == r].copy()
         if not sub.empty:
@@ -213,6 +220,6 @@ elif st.session_state.page == "Stats":
 
     if not st.session_state.data.empty:
         st.download_button("📄 Download 1-Page Master Report", 
-                           data=create_one_page_pdf(st.session_state.data, "Master Performance Report"), 
+                           data=create_one_page_pdf(st.session_state.data, f"Master Performance: {st.session_state.current_user}"), 
                            file_name="master_report.pdf",
                            on_click=lambda: st.toast("Download starting..."))
