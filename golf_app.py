@@ -5,6 +5,7 @@ from fpdf import FPDF
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
+import os
 from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
 from supabase import create_client, Client
@@ -64,7 +65,6 @@ def create_target_image(df_filtered, label):
         df = df_filtered.copy()
         df['dist'] = np.sqrt(df['X']**2 + df['Y']**2)
         colors = df['dist'].apply(lambda d: 'red' if d <= r_b else ('blue' if d <= r_p else 'black'))
-        # DOT SIZE CUT BY 50% (s=65)
         ax.scatter(df['X'], df['Y'], c=colors, s=65, edgecolors='white', linewidths=1.5, zorder=5)
 
     buf = io.BytesIO()
@@ -74,23 +74,55 @@ def create_target_image(df_filtered, label):
     plt.close(fig)
     return img, limit
 
-# --- 3. PDF ENGINE ---
-def create_pdf(df):
+# --- 3. UPGRADED PDF ENGINE (WITH IMAGES) ---
+def create_pdf(df, title):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(190, 10, txt="Golf Performance Report", ln=True, align='C')
-    pdf.ln(10)
-    pdf.set_font("Arial", size=12)
+    pdf.cell(190, 10, txt=title, ln=True, align='C')
+    pdf.ln(5)
+    
     for r in ["50-100", "101-150", "151-200"]:
         sub = df[df['Range'] == r].copy()
         if not sub.empty:
+            # Check if we need a new page to fit the image
+            if pdf.get_y() > 180: 
+                pdf.add_page()
+                
+            pdf.set_font("Arial", 'B', 14)
+            pdf.cell(190, 8, txt=f"{r}m Range", ln=True)
+            pdf.set_font("Arial", size=11)
+            
             sub['d'] = np.sqrt(sub['X']**2 + sub['Y']**2)
             rb, rp = get_radii(r)
             tot = len(sub)
             b = len(sub[sub['d'] <= rb])
             p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
-            pdf.cell(190, 8, txt=f"{r}m: {tot} Shots | Birdies: {b} | Pars: {p}", ln=True)
+            
+            # Math for misses outside birdie circle
+            misses = sub[sub['d'] > rb]
+            ll = len(misses[(misses['X'] < 0) & (misses['Y'] > 0)])
+            lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
+            sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)])
+            sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
+            
+            # Print the stats text
+            pdf.cell(190, 6, txt=f"Total Shots: {tot} | Birdies: {b} | Pars: {p} | Bogeys: {tot-(b+p)}", ln=True)
+            if tot > 0:
+                pdf.cell(190, 6, txt=f"Misses: Short-Left: {(sl/tot)*100:.0f}% | Long-Left: {(ll/tot)*100:.0f}% | Short-Right: {(sr/tot)*100:.0f}% | Long-Right: {(lr/tot)*100:.0f}%", ln=True)
+            
+            # Generate the image, save it temporarily, and paste it into the PDF
+            img, _ = create_target_image(sub, r)
+            temp_filename = f"temp_plot_{r}.png"
+            img.save(temp_filename)
+            
+            # x=60 centers the 90mm wide image on a standard 210mm wide A4 page
+            pdf.image(temp_filename, x=60, w=90) 
+            pdf.ln(5)
+            
+            # Clean up the temporary file
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
             
     pdf_out = pdf.output()
     if isinstance(pdf_out, str): return pdf_out.encode('latin-1')
@@ -116,7 +148,6 @@ if st.sidebar.button("🌐 Master Sheet", use_container_width=True):
 if st.sidebar.button("📊 Stats & Analytics", use_container_width=True):
     st.session_state.page = "Stats"
     st.session_state.data = load_data()
-
 
 # --- PAGE: HOME ---
 if st.session_state.page == "Home":
@@ -181,6 +212,14 @@ elif st.session_state.page == "Record":
                 st.session_state.data = load_data()
                 st.rerun()
 
+    # Individual Tournament Download Button
+    t_df = st.session_state.data[st.session_state.data['Tournament'] == st.session_state.active_t]
+    if not t_df.empty:
+        st.divider()
+        st.subheader("💾 Export Tournament Report")
+        t_pdf = create_pdf(t_df, f"Tournament Report: {st.session_state.active_t}")
+        st.download_button(f"📄 Download {st.session_state.active_t} PDF", data=t_pdf, file_name=f"{st.session_state.active_t}_report.pdf")
+
 # --- PAGE: MASTER SHEET ---
 elif st.session_state.page == "Master Sheet":
     st.header("Master Accumulated Data")
@@ -188,6 +227,11 @@ elif st.session_state.page == "Master Sheet":
         st.subheader(f"Global {r}m Dispersion")
         img_obj, _ = create_target_image(st.session_state.data[st.session_state.data['Range'] == r], r)
         st.image(img_obj)
+        
+    if not st.session_state.data.empty:
+        st.divider()
+        m_pdf = create_pdf(st.session_state.data, "Master Accumulated Data")
+        st.download_button("📄 Download Master PDF", data=m_pdf, file_name="master_report.pdf")
 
 # --- PAGE: STATS ---
 elif st.session_state.page == "Stats":
@@ -201,25 +245,4 @@ elif st.session_state.page == "Stats":
             b = len(sub[sub['d'] <= rb])
             p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
             
-            # Quadrant Math for shots outside birdie circle
-            misses = sub[sub['d'] > rb]
-            ll = len(misses[(misses['X'] < 0) & (misses['Y'] > 0)])
-            lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
-            sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)])
-            sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
-            
-            st.subheader(f"⛳ {r}m Range")
-            st.write(f"**Total Shots:** {tot} | **Birdies:** {b} | **Pars:** {p} | **Bogeys:** {tot-(b+p)}")
-            
-            st.markdown("**Miss Tendencies (Outside Birdie Circle):**")
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Long Left", f"{(ll/tot)*100:.0f}%")
-            col2.metric("Long Right", f"{(lr/tot)*100:.0f}%")
-            col3.metric("Short Left", f"{(sl/tot)*100:.0f}%")
-            col4.metric("Short Right", f"{(sr/tot)*100:.0f}%")
-            st.divider()
-            
-    if not st.session_state.data.empty:
-        st.subheader("💾 Export Report")
-        pdf_file = create_pdf(st.session_state.data)
-        st.download_button("📄 Download PDF Report", data=pdf_file, file_name="golf_stats.pdf")
+            # Quadrant Math for
