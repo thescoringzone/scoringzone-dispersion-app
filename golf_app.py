@@ -1,40 +1,30 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from streamlit_gsheets import GSheetsConnection
 from fpdf import FPDF
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
-from PIL import Image  # <-- This packages the image to fix the error
+from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 # --- 1. APP CONFIG ---
 st.set_page_config(page_title="Golf Dispersion Elite", layout="wide")
 
-# --- 2. DATABASE CONNECTION ---
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-def load_data():
-    try:
-        return conn.read(worksheet="Sheet1")
-    except Exception:
-        return pd.DataFrame(columns=["Tournament", "Range", "X", "Y"])
-
+# --- 2. LOCAL MEMORY STORAGE ---
 if 'data' not in st.session_state:
-    st.session_state.data = load_data()
+    st.session_state.data = pd.DataFrame(columns=["Tournament", "Range", "X", "Y"])
 
 def get_radii(label):
     if "50-100" in label: return 3, 6
     if "101-150" in label: return 4, 8
     return 5, 10
 
-# --- 3. THE VISUAL ENGINE (IMAGE BASED FOR FLAWLESS TOUCH) ---
+# --- 3. THE VISUAL ENGINE (IMAGE BASED TOUCH) ---
 def create_target_image(df_filtered, label):
     r_b, r_p = get_radii(label)
     limit = r_p + 2 
 
-    # Create a 500x500 pixel image
     fig = plt.figure(figsize=(5, 5), dpi=100)
     ax = fig.add_axes([0, 0, 1, 1]) 
     ax.set_xlim(-limit, limit)
@@ -63,15 +53,13 @@ def create_target_image(df_filtered, label):
     if not df_filtered.empty:
         df = df_filtered.copy()
         df['dist'] = np.sqrt(df['X']**2 + df['Y']**2)
-        # Colors: Birdie=Red, Par=Blue, Bogey=Black
         colors = df['dist'].apply(lambda d: 'red' if d <= r_b else ('blue' if d <= r_p else 'black'))
         ax.scatter(df['X'], df['Y'], c=colors, s=130, edgecolors='white', linewidths=1.5, zorder=5)
 
-    # Save to memory, package as PIL Image, and return
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     buf.seek(0)
-    img = Image.open(buf) # <-- This fixes the ValueError
+    img = Image.open(buf) 
     plt.close(fig)
     return img, limit
 
@@ -94,7 +82,7 @@ def create_pdf(df):
             pdf.cell(190, 8, txt=f"{r}m: {tot} Shots | Birdies: {b} | Pars: {p}", ln=True)
     return pdf.output()
 
-# --- 5. NAVIGATION ---
+# --- 5. NAVIGATION LOGIC ---
 if 'page' not in st.session_state: st.session_state.page = "Home"
 if 'active_t' not in st.session_state: st.session_state.active_t = None
 
@@ -113,6 +101,16 @@ if st.session_state.page == "Home":
                 st.rerun()
 
     st.divider()
+    
+    # LOAD DATA COMPONENT
+    st.subheader("📂 Load Previous Data")
+    uploaded_file = st.file_uploader("Upload your saved CSV backup:", type="csv")
+    if uploaded_file is not None:
+        st.session_state.data = pd.read_csv(uploaded_file)
+        st.success("Master Sheet Restored successfully!")
+        
+    st.divider()
+    
     all_t = st.session_state.data['Tournament'].unique().tolist()
     if not all_t:
         st.info("No tournaments yet. Create one above.")
@@ -125,13 +123,19 @@ if st.session_state.page == "Home":
                 st.rerun()
             if c2.button("🗑️", key=f"del_{t}"):
                 st.session_state.data = st.session_state.data[st.session_state.data['Tournament'] != t]
-                conn.update(worksheet="Sheet1", data=st.session_state.data)
                 st.rerun()
                 
     if not st.session_state.data.empty:
         st.divider()
+        st.subheader("💾 Backup Your Data")
+        st.info("⚠️ Data resets if you close the app. Tap Download CSV before you leave!")
+        
+        col1, col2 = st.columns(2)
         pdf_file = create_pdf(st.session_state.data)
-        st.download_button("📄 Download PDF Report", data=pdf_file, file_name="golf_stats.pdf")
+        col1.download_button("📄 Download PDF", data=pdf_file, file_name="golf_stats.pdf")
+        
+        csv_file = st.session_state.data.to_csv(index=False).encode('utf-8')
+        col2.download_button("📊 Download CSV", data=csv_file, file_name="golf_data_backup.csv")
 
 # --- PAGE: RECORD (BULLETPROOF TOUCH) ---
 elif st.session_state.page == "Record":
@@ -149,26 +153,20 @@ elif st.session_state.page == "Record":
             
             img_obj, limit = create_target_image(df_v, r_label)
             
-            # The Image Touch Component
             value = streamlit_image_coordinates(img_obj, key=f"img_{r_label}_{len(df_v)}")
             
-            # Translate Pixels to Meters
             if value is not None:
-                px = value['x']
-                py = value['y']
+                px, py = value['x'], value['y']
                 
-                # Math: Map 500 pixels back to the Cartesian grid
                 x_meters = round((px / 500.0) * (2 * limit) - limit, 2)
                 y_meters = round(limit - (py / 500.0) * (2 * limit), 2)
                 
                 new_row = pd.DataFrame([{"Tournament": st.session_state.active_t, "Range": r_label, "X": x_meters, "Y": y_meters}])
                 st.session_state.data = pd.concat([st.session_state.data, new_row], ignore_index=True)
-                conn.update(worksheet="Sheet1", data=st.session_state.data)
                 st.rerun()
             
             if not df_v.empty and st.button(f"Undo Last Shot", key=f"un_{r_label}"):
                 st.session_state.data = st.session_state.data.drop(df_v.index[-1])
-                conn.update(worksheet="Sheet1", data=st.session_state.data)
                 st.rerun()
 
 # --- PAGE: MASTER SHEET ---
@@ -176,7 +174,6 @@ elif st.session_state.page == "Master Sheet":
     st.header("Master Accumulated Data")
     for r in ["50-100", "101-150", "151-200"]:
         st.subheader(f"Global {r}m Dispersion")
-        # Reuse identical image generator for the Master Sheet
         img_obj, _ = create_target_image(st.session_state.data[st.session_state.data['Range'] == r], r)
         st.image(img_obj)
 
