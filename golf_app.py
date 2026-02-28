@@ -3,10 +3,11 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from streamlit_gsheets import GSheetsConnection
+from streamlit_plotly_events import plotly_events
 from fpdf import FPDF
 
 # --- 1. APP CONFIG ---
-st.set_page_config(page_title="Golf Dispersion Elite", layout="wide")
+st.set_page_config(page_title="Golf Dispersion Pro", layout="wide")
 
 # --- 2. DATABASE CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -26,10 +27,21 @@ def get_radii(label):
     if "101-150" in label: return 4, 8
     return 5, 10
 
-# --- 3. THE VISUAL ENGINE ---
+# --- 3. THE VISUAL ENGINE (WITH INVISIBLE GRID HACK) ---
 def draw_dispersion(df_filtered, label):
     fig = go.Figure()
     r_b, r_p = get_radii(label)
+    limit = r_p + 2
+
+    # --- THE INVISIBLE TOUCH GRID ---
+    # This creates a dense net of transparent dots so you can click anywhere
+    grid_vals = np.linspace(-limit, limit, 60) # 60x60 = 3600 clickable points
+    gx, gy = np.meshgrid(grid_vals, grid_vals)
+    fig.add_trace(go.Scatter(
+        x=gx.flatten(), y=gy.flatten(), mode='markers',
+        marker=dict(size=15, color='rgba(0,0,0,0)'), # Completely transparent
+        hoverinfo='none', showlegend=False
+    ))
 
     # Birdie Circle: Blue outline, Light Blue Opaque Fill
     fig.add_shape(type="circle", x0=-r_b, y0=-r_b, x1=r_b, y1=r_b,
@@ -39,19 +51,19 @@ def draw_dispersion(df_filtered, label):
     fig.add_shape(type="circle", x0=-r_p, y0=-r_p, x1=r_p, y1=r_p,
                   line_color="blue", line_width=2)
     
-    # Labels (3m, 6m, etc.)
+    # Metric Labels
     fig.add_annotation(x=0, y=r_b, text=f"{r_b}m", showarrow=False, yshift=10, font=dict(color="blue"))
     fig.add_annotation(x=0, y=r_p, text=f"{r_p}m", showarrow=False, yshift=10, font=dict(color="blue"))
 
-    limit = r_p + 2
     # Crosshairs
     fig.add_shape(type="line", x0=-limit, y0=0, x1=limit, y1=0, line=dict(color="rgba(0,0,0,0.1)", dash="dash"))
     fig.add_shape(type="line", x0=0, y0=-limit, x1=0, y1=limit, line=dict(color="rgba(0,0,0,0.1)", dash="dash"))
 
+    # Plot Actual Shots
     if not df_filtered.empty:
         df = df_filtered.copy()
         df['dist'] = np.sqrt(df['X']**2 + df['Y']**2)
-        # Dot Colors: Birdie=Red, Par=Blue, Bogey=Black
+        # Colors: Birdie=Red, Par=Blue, Bogey=Black
         df['c'] = df['dist'].apply(lambda d: 'red' if d <= r_b else ('blue' if d <= r_p else 'black'))
         
         fig.add_trace(go.Scatter(
@@ -62,11 +74,10 @@ def draw_dispersion(df_filtered, label):
 
     fig.update_layout(
         template="plotly_white", 
-        # REMOVE NUMBERS & ADD RECTANGLE FRAME
+        # RECTANGLE FRAME & NO NUMBERS
         xaxis=dict(range=[-limit, limit], fixedrange=True, showticklabels=False, showgrid=False, zeroline=False, mirror=True, showline=True, linecolor='black', linewidth=2),
         yaxis=dict(range=[-limit, limit], fixedrange=True, showticklabels=False, showgrid=False, zeroline=False, mirror=True, showline=True, linecolor='black', linewidth=2),
-        width=450, height=450, showlegend=False, margin=dict(l=10, r=10, t=40, b=10),
-        clickmode='event+select'
+        width=400, height=400, showlegend=False, margin=dict(l=10, r=10, t=30, b=10)
     )
     return fig
 
@@ -116,26 +127,26 @@ elif st.session_state.page == "Record":
         with t_tabs[i]:
             df_v = st.session_state.data[(st.session_state.data['Tournament'] == st.session_state.active_t) & (st.session_state.data['Range'] == r_label)]
             
-            # ST NATIVE CLICK
-            # Using on_click logic for mobile compatibility
-            event_data = st.plotly_chart(draw_dispersion(df_v, r_label), on_select="rerun", key=f"chart_{r_label}")
+            st.write("👆 **Tap inside the box to record a shot.**")
             
-            # Check if a point was tapped on the plot background
-            if event_data and "selection" in event_data and event_data["selection"]["points"]:
-                # Logic for background clicks usually requires a coordinate fetch
-                # If selection is empty, we check for 'point' in selection
-                pass 
+            # THE MAGIC TOUCH COMPONENT
+            # We add len(df_v) to the key. This forces the chart to "refresh" instantly after every tap.
+            event_data = plotly_events(
+                draw_dispersion(df_v, r_label), 
+                click_event=True, 
+                hover_event=False, 
+                key=f"plot_{r_label}_{len(df_v)}"
+            )
             
-            # Since native Plotly in Streamlit can be picky with background clicks, 
-            # we will provide a "Confirm Location" button after one tap.
-            st.info("Tap the circle, then click 'Confirm' to save.")
-            if event_data and event_data.get("selection"):
-                 # Pulling the custom coordinates from the tap
-                 # Note: Streamlit 1.35+ improved selection events
-                 st.write("Point Selected. Click 'Save' below.")
-                 if st.button(f"Save Shot to {r_label}m"):
-                     # Logic to grab click coords
-                     pass
+            if event_data:
+                # Grab the X and Y from the invisible dot you tapped
+                new_x = round(event_data[0]['x'], 2)
+                new_y = round(event_data[0]['y'], 2)
+                
+                new_row = pd.DataFrame([{"Tournament": st.session_state.active_t, "Range": r_label, "X": new_x, "Y": new_y}])
+                st.session_state.data = pd.concat([st.session_state.data, new_row], ignore_index=True)
+                conn.update(worksheet="Sheet1", data=st.session_state.data)
+                st.rerun()
 
             if not df_v.empty and st.button("Undo Last Shot", key=f"un_{r_label}"):
                 st.session_state.data = st.session_state.data.drop(df_v.index[-1])
@@ -147,7 +158,7 @@ elif st.session_state.page == "Master Sheet":
     st.header("Master Accumulated View")
     for r in ["50-100", "101-150", "151-200"]:
         st.subheader(f"Global {r}m Dispersion")
-        # Now uses the same function as individual tournaments
+        # Reuse the exact same drawing function
         st.plotly_chart(draw_dispersion(st.session_state.data[st.session_state.data['Range'] == r], r))
 
 # --- PAGE: STATS ---
