@@ -49,7 +49,6 @@ def create_target_image(df_filtered, label):
 
     rect = patches.Rectangle((-limit, -limit), limit*2, limit*2, linewidth=4, edgecolor='black', facecolor='white')
     ax.add_patch(rect)
-
     ax.axhline(0, color='gray', linestyle='--', alpha=0.4)
     ax.axvline(0, color='gray', linestyle='--', alpha=0.4)
 
@@ -57,9 +56,6 @@ def create_target_image(df_filtered, label):
     circle_p = patches.Circle((0, 0), r_p, linewidth=2, edgecolor='blue', facecolor='none')
     ax.add_patch(circle_b)
     ax.add_patch(circle_p)
-
-    ax.text(0, r_b + 0.3, f"{r_b}m", color='blue', ha='center', va='bottom', fontsize=12, fontweight='bold')
-    ax.text(0, r_p + 0.3, f"{r_p}m", color='blue', ha='center', va='bottom', fontsize=12, fontweight='bold')
 
     if not df_filtered.empty:
         df = df_filtered.copy()
@@ -72,63 +68,59 @@ def create_target_image(df_filtered, label):
     buf.seek(0)
     img = Image.open(buf) 
     plt.close(fig)
-    return img, limit
+    return img
 
-# --- 3. UPGRADED PDF ENGINE (WITH IMAGES) ---
-def create_pdf(df, title):
+# --- 3. SINGLE-PAGE PDF ENGINE ---
+def create_one_page_pdf(df, title):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(190, 10, txt=title, ln=True, align='C')
-    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(190, 8, txt=title, ln=True, align='C')
+    pdf.ln(2)
     
+    # Grid Layout: 3 Ranges in one column
+    y_start = 25
     for r in ["50-100", "101-150", "151-200"]:
         sub = df[df['Range'] == r].copy()
-        if not sub.empty:
-            # Check if we need a new page to fit the image
-            if pdf.get_y() > 180: 
-                pdf.add_page()
-                
-            pdf.set_font("Arial", 'B', 14)
-            pdf.cell(190, 8, txt=f"{r}m Range", ln=True)
-            pdf.set_font("Arial", size=11)
-            
+        
+        # Heading
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_xy(10, y_start)
+        pdf.cell(100, 5, txt=f"Range: {r}m", ln=True)
+        
+        # Stats
+        pdf.set_font("Arial", size=8)
+        tot = len(sub)
+        if tot > 0:
             sub['d'] = np.sqrt(sub['X']**2 + sub['Y']**2)
             rb, rp = get_radii(r)
-            tot = len(sub)
             b = len(sub[sub['d'] <= rb])
             p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
-            
-            # Math for misses outside birdie circle
             misses = sub[sub['d'] > rb]
             ll = len(misses[(misses['X'] < 0) & (misses['Y'] > 0)])
             lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
             sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)])
             sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
             
-            # Print the stats text
-            pdf.cell(190, 6, txt=f"Total Shots: {tot} | Birdies: {b} | Pars: {p} | Bogeys: {tot-(b+p)}", ln=True)
-            if tot > 0:
-                pdf.cell(190, 6, txt=f"Misses: Short-Left: {(sl/tot)*100:.0f}% | Long-Left: {(ll/tot)*100:.0f}% | Short-Right: {(sr/tot)*100:.0f}% | Long-Right: {(lr/tot)*100:.0f}%", ln=True)
+            stats_text = f"Shots: {tot} | Birdies: {b} | Pars: {p} | SL: {(sl/tot)*100:.0f}% LL: {(ll/tot)*100:.0f}% SR: {(sr/tot)*100:.0f}% LR: {(lr/tot)*100:.0f}%"
+        else:
+            stats_text = "No shots recorded for this range."
             
-            # Generate the image, save it temporarily, and paste it into the PDF
-            img, _ = create_target_image(sub, r)
-            temp_filename = f"temp_plot_{r}.png"
-            img.save(temp_filename)
-            
-            # x=60 centers the 90mm wide image on a standard 210mm wide A4 page
-            pdf.image(temp_filename, x=60, w=90) 
-            pdf.ln(5)
-            
-            # Clean up the temporary file
-            if os.path.exists(temp_filename):
-                os.remove(temp_filename)
-            
-    pdf_out = pdf.output()
-    if isinstance(pdf_out, str): return pdf_out.encode('latin-1')
-    return bytes(pdf_out)
+        pdf.cell(190, 4, txt=stats_text, ln=True)
+        
+        # Image (Smaller to fit 3 on one page)
+        img = create_target_image(sub, r)
+        temp_fn = f"temp_{r}.png"
+        img.save(temp_fn)
+        pdf.image(temp_fn, x=70, y=pdf.get_y(), w=60)
+        
+        # Cleanup and increment Y
+        if os.path.exists(temp_fn): os.remove(temp_fn)
+        y_start += 85 # Space between sections
+        
+    return bytes(pdf.output())
 
-# --- 4. NAVIGATION LOGIC ---
+# --- 4. NAVIGATION ---
 if 'page' not in st.session_state: st.session_state.page = "Home"
 if 'active_t' not in st.session_state: st.session_state.active_t = None
 
@@ -141,11 +133,7 @@ if st.session_state.active_t:
     if st.sidebar.button(f"🎯 Edit: {st.session_state.active_t}", use_container_width=True):
         st.session_state.page = "Record"
 
-if st.sidebar.button("🌐 Master Sheet", use_container_width=True):
-    st.session_state.page = "Master Sheet"
-    st.session_state.data = load_data()
-
-if st.sidebar.button("📊 Stats & Analytics", use_container_width=True):
+if st.sidebar.button("📊 Stats & Master", use_container_width=True):
     st.session_state.page = "Stats"
     st.session_state.data = load_data()
 
@@ -159,90 +147,72 @@ if st.session_state.page == "Home":
                 st.session_state.active_t = t_name
                 st.session_state.page = "Record"
                 st.rerun()
-
     st.divider()
     all_t = st.session_state.data['Tournament'].unique().tolist() if not st.session_state.data.empty else []
-    
-    if not all_t:
-        st.info("No tournaments yet. Create one above.")
-    else:
-        for t in all_t:
-            c1, c2 = st.columns([4, 1])
-            if c1.button(f"⛳ {t}", use_container_width=True):
-                st.session_state.active_t = t
-                st.session_state.page = "Record"
-                st.rerun()
-            if c2.button("🗑️", key=f"del_{t}"):
-                supabase.table("shots").delete().eq("Tournament", t).execute()
-                if st.session_state.active_t == t:
-                    st.session_state.active_t = None
-                st.session_state.data = load_data()
-                st.rerun()
+    for t in all_t:
+        c1, c2 = st.columns([4, 1])
+        if c1.button(f"⛳ {t}", use_container_width=True):
+            st.session_state.active_t = t
+            st.session_state.page = "Record"
+            st.rerun()
+        if c2.button("🗑️", key=f"del_{t}"):
+            supabase.table("shots").delete().eq("Tournament", t).execute()
+            st.session_state.data = load_data()
+            st.rerun()
 
 # --- PAGE: RECORD ---
 elif st.session_state.page == "Record":
-    st.button("⬅️ Back to Home", on_click=lambda: setattr(st.session_state, 'page', "Home"))
+    st.button("⬅️ Back", on_click=lambda: setattr(st.session_state, 'page', "Home"))
     st.title(f"Target: {st.session_state.active_t}")
-    
     t_tabs = st.tabs(["50-100m", "101-150m", "151-200m"])
-    r_list = ["50-100", "101-150", "151-200"]
-    
-    for i, r_label in enumerate(r_list):
+    for i, r_label in enumerate(["50-100", "101-150", "151-200"]):
         with t_tabs[i]:
             df_v = st.session_state.data[(st.session_state.data['Tournament'] == st.session_state.active_t) & (st.session_state.data['Range'] == r_label)]
-            
-            st.write("👆 **Tap inside the frame to record a shot.**")
-            
-            img_obj, limit = create_target_image(df_v, r_label)
+            img_obj = create_target_image(df_v, r_label)
             value = streamlit_image_coordinates(img_obj, key=f"img_{r_label}_{len(df_v)}")
-            
-            if value is not None:
+            if value:
                 px, py = value['x'], value['y']
-                x_meters = round((px / 500.0) * (2 * limit) - limit, 2)
-                y_meters = round(limit - (py / 500.0) * (2 * limit), 2)
-                
-                new_shot = {"Tournament": st.session_state.active_t, "Range": r_label, "X": x_meters, "Y": y_meters}
-                supabase.table("shots").insert(new_shot).execute()
-                st.session_state.data = load_data()
-                st.rerun()
-            
-            if not df_v.empty and st.button(f"Undo Last Shot", key=f"un_{r_label}"):
-                last_id = int(df_v.iloc[-1]['id'])
-                supabase.table("shots").delete().eq("id", last_id).execute()
-                st.session_state.data = load_data()
-                st.rerun()
-
-    # Individual Tournament Download Button
+                _, limit = get_radii(r_label); limit += 2
+                x_m = round((px / 500.0) * (2 * limit) - limit, 2)
+                y_m = round(limit - (py / 500.0) * (2 * limit), 2)
+                supabase.table("shots").insert({"Tournament": st.session_state.active_t, "Range": r_label, "X": x_m, "Y": y_m}).execute()
+                st.session_state.data = load_data(); st.rerun()
+            if not df_v.empty and st.button(f"Undo", key=f"un_{r_label}"):
+                supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
+                st.session_state.data = load_data(); st.rerun()
+    
+    st.divider()
     t_df = st.session_state.data[st.session_state.data['Tournament'] == st.session_state.active_t]
     if not t_df.empty:
-        st.divider()
-        st.subheader("💾 Export Tournament Report")
-        t_pdf = create_pdf(t_df, f"Tournament Report: {st.session_state.active_t}")
-        st.download_button(f"📄 Download {st.session_state.active_t} PDF", data=t_pdf, file_name=f"{st.session_state.active_t}_report.pdf")
-
-# --- PAGE: MASTER SHEET ---
-elif st.session_state.page == "Master Sheet":
-    st.header("Master Accumulated Data")
-    for r in ["50-100", "101-150", "151-200"]:
-        st.subheader(f"Global {r}m Dispersion")
-        img_obj, _ = create_target_image(st.session_state.data[st.session_state.data['Range'] == r], r)
-        st.image(img_obj)
-        
-    if not st.session_state.data.empty:
-        st.divider()
-        m_pdf = create_pdf(st.session_state.data, "Master Accumulated Data")
-        st.download_button("📄 Download Master PDF", data=m_pdf, file_name="master_report.pdf")
+        st.download_button("📄 Download 1-Page Tournament Report", 
+                           data=create_one_page_pdf(t_df, f"Tournament: {st.session_state.active_t}"), 
+                           file_name=f"{st.session_state.active_t}_report.pdf", 
+                           on_click=lambda: st.toast("Download starting..."))
 
 # --- PAGE: STATS ---
 elif st.session_state.page == "Stats":
-    st.header("Performance Stats")
+    st.header("Master Analytics")
     for r in ["50-100", "101-150", "151-200"]:
         sub = st.session_state.data[st.session_state.data['Range'] == r].copy()
         if not sub.empty:
+            st.subheader(f"⛳ {r}m Range")
+            st.image(create_target_image(sub, r))
             sub['d'] = np.sqrt(sub['X']**2 + sub['Y']**2)
-            rb, rp = get_radii(r)
-            tot = len(sub)
-            b = len(sub[sub['d'] <= rb])
-            p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
-            
-            # Quadrant Math for
+            rb, _ = get_radii(r); tot = len(sub); b = len(sub[sub['d'] <= rb])
+            misses = sub[sub['d'] > rb]
+            ll = len(misses[(misses['X'] < 0) & (misses['Y'] > 0)])
+            lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
+            sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)])
+            sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Short Left", f"{(sl/tot)*100:.0f}%")
+            c2.metric("Long Left", f"{(ll/tot)*100:.0f}%")
+            c3.metric("Short Right", f"{(sr/tot)*100:.0f}%")
+            c4.metric("Long Right", f"{(lr/tot)*100:.0f}%")
+            st.divider()
+
+    if not st.session_state.data.empty:
+        st.download_button("📄 Download 1-Page Master Report", 
+                           data=create_one_page_pdf(st.session_state.data, "Master Performance Report"), 
+                           file_name="master_report.pdf",
+                           on_click=lambda: st.toast("Download starting..."))
