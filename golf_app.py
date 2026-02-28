@@ -6,6 +6,7 @@ from fpdf import FPDF
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
+from PIL import Image  # <-- This packages the image to fix the error
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 # --- 1. APP CONFIG ---
@@ -31,14 +32,14 @@ def get_radii(label):
 # --- 3. THE VISUAL ENGINE (IMAGE BASED FOR FLAWLESS TOUCH) ---
 def create_target_image(df_filtered, label):
     r_b, r_p = get_radii(label)
-    limit = r_p + 2 # Adds a 2m buffer around the outer circle
+    limit = r_p + 2 
 
     # Create a 500x500 pixel image
     fig = plt.figure(figsize=(5, 5), dpi=100)
-    ax = fig.add_axes([0, 0, 1, 1]) # Take up 100% of the canvas
+    ax = fig.add_axes([0, 0, 1, 1]) 
     ax.set_xlim(-limit, limit)
     ax.set_ylim(-limit, limit)
-    ax.axis('off') # Hides all X and Y axis numbers completely
+    ax.axis('off') 
 
     # 1. The Rectangle Frame
     rect = patches.Rectangle((-limit, -limit), limit*2, limit*2, linewidth=4, edgecolor='black', facecolor='white')
@@ -66,12 +67,13 @@ def create_target_image(df_filtered, label):
         colors = df['dist'].apply(lambda d: 'red' if d <= r_b else ('blue' if d <= r_p else 'black'))
         ax.scatter(df['X'], df['Y'], c=colors, s=130, edgecolors='white', linewidths=1.5, zorder=5)
 
-    # Save to memory as PNG
+    # Save to memory, package as PIL Image, and return
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     buf.seek(0)
+    img = Image.open(buf) # <-- This fixes the ValueError
     plt.close(fig)
-    return buf.getvalue(), limit
+    return img, limit
 
 # --- 4. PDF ENGINE ---
 def create_pdf(df):
@@ -145,10 +147,10 @@ elif st.session_state.page == "Record":
             
             st.write("👆 **Tap inside the frame to record a shot.**")
             
-            img_bytes, limit = create_target_image(df_v, r_label)
+            img_obj, limit = create_target_image(df_v, r_label)
             
             # The Image Touch Component
-            value = streamlit_image_coordinates(img_bytes, key=f"img_{r_label}_{len(df_v)}")
+            value = streamlit_image_coordinates(img_obj, key=f"img_{r_label}_{len(df_v)}")
             
             # Translate Pixels to Meters
             if value is not None:
@@ -175,8 +177,8 @@ elif st.session_state.page == "Master Sheet":
     for r in ["50-100", "101-150", "151-200"]:
         st.subheader(f"Global {r}m Dispersion")
         # Reuse identical image generator for the Master Sheet
-        img_bytes, _ = create_target_image(st.session_state.data[st.session_state.data['Range'] == r], r)
-        st.image(img_bytes)
+        img_obj, _ = create_target_image(st.session_state.data[st.session_state.data['Range'] == r], r)
+        st.image(img_obj)
 
 # --- PAGE: STATS ---
 elif st.session_state.page == "Stats":
