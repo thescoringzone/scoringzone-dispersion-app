@@ -181,11 +181,14 @@ elif st.session_state.page == "Record":
                 
                 # Push instantly to Supabase Vault
                 new_shot = {"Tournament": st.session_state.active_t, "Range": r_label, "X": x_meters, "Y": y_meters}
-                supabase.table("shots").insert(new_shot).execute()
-                
-                # Refresh data
-                st.session_state.data = load_data()
-                st.rerun()
+                try:
+                    supabase.table("shots").insert(new_shot).execute()
+                    # Refresh data
+                    st.session_state.data = load_data()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"🚨 THE EXACT DATABASE ERROR IS: {e}")
+                    st.stop()
             
             if not df_v.empty and st.button(f"Undo Last Shot", key=f"un_{r_label}"):
                 # Find the database ID of the very last shot and delete it
