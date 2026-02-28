@@ -82,12 +82,26 @@ def create_pdf(df):
             pdf.cell(190, 8, txt=f"{r}m: {tot} Shots | Birdies: {b} | Pars: {p}", ln=True)
     return pdf.output()
 
-# --- 5. NAVIGATION LOGIC ---
+# --- 5. SMART NAVIGATION LOGIC ---
 if 'page' not in st.session_state: st.session_state.page = "Home"
 if 'active_t' not in st.session_state: st.session_state.active_t = None
 
-menu = st.sidebar.radio("Navigation", ["Home", "Master Sheet", "Stats"])
-if menu != "Home": st.session_state.page = menu
+st.sidebar.title("🧭 Menu")
+
+if st.sidebar.button("🏠 Home (Tournament List)", use_container_width=True):
+    st.session_state.page = "Home"
+
+# This button only appears if you have selected a tournament!
+if st.session_state.active_t:
+    if st.sidebar.button(f"🎯 Edit: {st.session_state.active_t}", use_container_width=True):
+        st.session_state.page = "Record"
+
+if st.sidebar.button("🌐 Master Sheet", use_container_width=True):
+    st.session_state.page = "Master Sheet"
+
+if st.sidebar.button("📊 Stats & Analytics", use_container_width=True):
+    st.session_state.page = "Stats"
+
 
 # --- PAGE: HOME ---
 if st.session_state.page == "Home":
@@ -102,7 +116,6 @@ if st.session_state.page == "Home":
 
     st.divider()
     
-    # LOAD DATA COMPONENT
     st.subheader("📂 Load Previous Data")
     uploaded_file = st.file_uploader("Upload your saved CSV backup:", type="csv")
     if uploaded_file is not None:
@@ -123,6 +136,9 @@ if st.session_state.page == "Home":
                 st.rerun()
             if c2.button("🗑️", key=f"del_{t}"):
                 st.session_state.data = st.session_state.data[st.session_state.data['Tournament'] != t]
+                # If you delete the active tournament, clear it from memory
+                if st.session_state.active_t == t:
+                    st.session_state.active_t = None
                 st.rerun()
                 
     if not st.session_state.data.empty:
@@ -139,7 +155,7 @@ if st.session_state.page == "Home":
 
 # --- PAGE: RECORD (BULLETPROOF TOUCH) ---
 elif st.session_state.page == "Record":
-    st.button("⬅️ Home List", on_click=lambda: setattr(st.session_state, 'page', "Home"))
+    st.button("⬅️ Back to Home List", on_click=lambda: setattr(st.session_state, 'page', "Home"))
     st.title(f"Target: {st.session_state.active_t}")
     
     t_tabs = st.tabs(["50-100m", "101-150m", "151-200m"])
