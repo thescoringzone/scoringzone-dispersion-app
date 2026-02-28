@@ -78,8 +78,9 @@ def create_target_image(df_filtered, label):
 
 # --- 4. OFF THE TEE VISUAL ENGINE ---
 def create_tee_image(df_filtered, label):
-    y_min, y_max = (270, 320) if label == "Driver" else (220, 270)
-    x_limit = 30 # -30m to +30m gives 60m total width
+    # Updated label matching
+    y_min, y_max = (270, 320) if label == "OTT: Driver" else (220, 270)
+    x_limit = 30 
     
     fig = plt.figure(figsize=(5, 5), dpi=100)
     ax = fig.add_axes([0, 0, 1, 1])
@@ -87,26 +88,20 @@ def create_tee_image(df_filtered, label):
     ax.set_ylim(y_min, y_max)
     ax.axis('off')
     
-    # Outer bounds
     rect = patches.Rectangle((-x_limit, y_min), x_limit*2, y_max-y_min, linewidth=4, edgecolor='black', facecolor='white')
     ax.add_patch(rect)
-    
-    # Fill between 10m dashed lines
     ax.axvspan(-10, 10, facecolor='#ADD8E6', alpha=0.4)
     
-    # Vertical Lines
     ax.axvline(0, color='blue', linestyle='solid', linewidth=2)
     ax.axvline(-10, color='blue', linestyle='dashed', linewidth=2)
     ax.axvline(10, color='blue', linestyle='dashed', linewidth=2)
     ax.axvline(-20, color='blue', linestyle='dotted', linewidth=2)
     ax.axvline(20, color='blue', linestyle='dotted', linewidth=2)
     
-    # Horizontal grid lines for distance
     for y in range(y_min, y_max, 10):
         ax.axhline(y, color='gray', linestyle='--', alpha=0.4)
         ax.text(-29, y+0.5, f"{y}m", color='gray', fontsize=8)
         
-    # Top Labels
     label_y = y_max - 2
     ax.text(0, label_y, "Centre", color='blue', ha='center', fontweight='bold')
     ax.text(-10, label_y, "10m", color='blue', ha='center', fontweight='bold')
@@ -180,11 +175,11 @@ def create_tee_pdf(df, title):
     pdf.ln(5)
     
     y_start = 25
-    for r in ["Driver", "Others"]:
+    for r in ["OTT: Driver", "OTT: Others"]:
         sub = df[df['Range'] == r].copy()
         pdf.set_font("Arial", 'B', 12)
         pdf.set_xy(10, y_start)
-        pdf.cell(100, 6, txt=f"Off the Tee: {r}", ln=True)
+        pdf.cell(100, 6, txt=f"{r}", ln=True)
         
         pdf.set_font("Arial", size=9)
         tot = len(sub)
@@ -193,8 +188,9 @@ def create_tee_pdf(df, title):
             in_10 = len(sub[sub['dx'] <= 10])
             in_20 = len(sub[(sub['dx'] > 10) & (sub['dx'] <= 20)])
             out_20 = len(sub[sub['dx'] > 20])
+            avg_dist = sub['Y'].mean()
             
-            stats_txt = f"Total Shots: {tot} | Within 10m: {(in_10/tot)*100:.0f}% | 10-20m: {(in_20/tot)*100:.0f}% | 20m+: {(out_20/tot)*100:.0f}%"
+            stats_txt = f"Shots: {tot} | Avg Dist: {avg_dist:.1f}m | <10m: {(in_10/tot)*100:.0f}% | 10-20m: {(in_20/tot)*100:.0f}% | 20m+: {(out_20/tot)*100:.0f}%"
             pdf.cell(190, 5, txt=stats_txt, ln=True)
         else:
             pdf.cell(190, 5, txt="No shots recorded.", ln=True)
@@ -202,7 +198,7 @@ def create_tee_pdf(df, title):
         img = create_tee_image(sub, r)
         temp_fn = f"temp_{r}.png"
         img.save(temp_fn)
-        pdf.image(temp_fn, x=65, y=pdf.get_y()+2, w=80) # Made Tee images wider for better fairway view
+        pdf.image(temp_fn, x=65, y=pdf.get_y()+2, w=80) 
         
         if os.path.exists(temp_fn): os.remove(temp_fn)
         y_start += 125 
@@ -252,8 +248,8 @@ elif st.session_state.page == "Record":
     st.button("⬅️ Back", on_click=lambda: setattr(st.session_state, 'page', "Home"))
     st.title(f"Target: {st.session_state.active_t}")
     
-    # ADDED TEE TABS
-    tabs_list = ["50-100m", "101-150m", "151-200m", "Driver", "Others"]
+    # UPDATED TABS
+    tabs_list = ["50-100m", "101-150m", "151-200m", "OTT: Driver", "OTT: Others"]
     t_tabs = st.tabs(tabs_list)
     
     for i, r_label in enumerate(tabs_list):
@@ -261,26 +257,26 @@ elif st.session_state.page == "Record":
             df_v = st.session_state.data[(st.session_state.data['Tournament'] == st.session_state.active_t) & (st.session_state.data['Range'] == r_label)]
             
             # --- TEE LOGIC ---
-            if r_label in ["Driver", "Others"]:
+            if r_label in ["OTT: Driver", "OTT: Others"]:
                 img_obj = create_tee_image(df_v, r_label)
                 value = streamlit_image_coordinates(img_obj, key=f"img_{r_label}_{len(df_v)}")
                 if value:
                     px, py = value['x'], value['y']
-                    y_min, y_max = (270, 320) if r_label == "Driver" else (220, 270)
-                    # Mapping 500px to 60m width (-30 to +30) and 50m height
+                    y_min, y_max = (270, 320) if r_label == "OTT: Driver" else (220, 270)
                     x_m = round((px / 500.0) * 60 - 30, 2)
                     y_m = round(y_max - (py / 500.0) * 50, 2)
                     supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Range": r_label, "X": x_m, "Y": y_m}).execute()
                     st.session_state.data = load_data(st.session_state.current_user); st.rerun()
                 
-                # Tee Stats
+                # Tee Stats with Average Distance
                 if not df_v.empty:
                     tot = len(df_v)
                     dx = df_v['X'].abs()
                     in_10 = len(df_v[dx <= 10])
                     in_20 = len(df_v[(dx > 10) & (dx <= 20)])
                     out_20 = len(df_v[dx > 20])
-                    st.subheader(f"Within 10m: {(in_10/tot)*100:.0f}% | 10-20m: {(in_20/tot)*100:.0f}% | 20m+: {(out_20/tot)*100:.0f}%")
+                    avg_dist = df_v['Y'].mean()
+                    st.subheader(f"Avg Dist: {avg_dist:.1f}m | <10m: {(in_10/tot)*100:.0f}% | 10-20m: {(in_20/tot)*100:.0f}% | 20m+: {(out_20/tot)*100:.0f}%")
             
             # --- APPROACH LOGIC ---
             else:
@@ -294,7 +290,6 @@ elif st.session_state.page == "Record":
                     supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Range": r_label, "X": x_m, "Y": y_m}).execute()
                     st.session_state.data = load_data(st.session_state.current_user); st.rerun()
                 
-                # Approach Stats
                 if not df_v.empty:
                     df_v['d'] = np.sqrt(df_v['X']**2 + df_v['Y']**2)
                     rb, rp = get_radii(r_label)
@@ -305,7 +300,6 @@ elif st.session_state.page == "Record":
                     sign = "+" if to_par > 0 else ""
                     st.subheader(f"To Par: {sign}{to_par} per {tot} shots")
 
-            # Shared Undo Button
             if not df_v.empty and st.button(f"Undo", key=f"un_{r_label}"):
                 supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
                 st.session_state.data = load_data(st.session_state.current_user); st.rerun()
@@ -323,7 +317,6 @@ elif st.session_state.page == "Record":
 elif st.session_state.page == "Stats":
     st.header(f"Master Analytics: {st.session_state.current_user}")
     
-    # 1. APPROACH SECTION
     st.subheader("🎯 Approach Performance")
     for r in ["50-100", "101-150", "151-200"]:
         sub = st.session_state.data[st.session_state.data['Range'] == r].copy()
@@ -348,9 +341,8 @@ elif st.session_state.page == "Stats":
             c4.metric("Long Right", f"{(lr/tot)*100:.0f}%")
             st.divider()
             
-    # 2. OFF THE TEE SECTION
     st.subheader("🚀 Off the Tee Performance")
-    for r in ["Driver", "Others"]:
+    for r in ["OTT: Driver", "OTT: Others"]:
         sub = st.session_state.data[st.session_state.data['Range'] == r].copy()
         if not sub.empty:
             st.markdown(f"**🏌️‍♂️ {r}**")
@@ -360,14 +352,16 @@ elif st.session_state.page == "Stats":
             in_10 = len(sub[dx <= 10])
             in_20 = len(sub[(dx > 10) & (dx <= 20)])
             out_20 = len(sub[dx > 20])
+            avg_dist = sub['Y'].mean()
             
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Within 10m (Red)", f"{(in_10/tot)*100:.0f}%")
-            c2.metric("10-20m (Blue)", f"{(in_20/tot)*100:.0f}%")
-            c3.metric("20m+ (Black)", f"{(out_20/tot)*100:.0f}%")
+            # Added a 4th column for Average Distance
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Avg Distance", f"{avg_dist:.1f}m")
+            c2.metric("Within 10m", f"{(in_10/tot)*100:.0f}%")
+            c3.metric("10-20m", f"{(in_20/tot)*100:.0f}%")
+            c4.metric("20m+", f"{(out_20/tot)*100:.0f}%")
             st.divider()
 
-    # MASTER DOWNLOAD BUTTONS
     if not st.session_state.data.empty:
         col1, col2 = st.columns(2)
         with col1:
