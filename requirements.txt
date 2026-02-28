@@ -3,5 +3,4 @@ pandas
 plotly
 numpy
 st-gsheets-connection
-streamlit-plotly-events
 fpdf2
