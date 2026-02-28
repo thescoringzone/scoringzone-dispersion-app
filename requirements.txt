@@ -1,7 +1,7 @@
 streamlit
 pandas
-plotly
 numpy
 st-gsheets-connection
-streamlit-plotly-events
 fpdf2
+matplotlib
+streamlit-image-coordinates
