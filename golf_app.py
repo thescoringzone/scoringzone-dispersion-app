@@ -47,6 +47,7 @@ def load_round_stats(current_user, tournament, round_num):
         "user_name": current_user, "tournament": tournament, "round_num": round_num,
         "gir": 0, "gir_less_5": 0, "sg_total": 0, "sg_inside_6": 0, "sg_inside_3": 0, "sg_ud": 0, "sgz_score": 0,
         "putts_total": 0, "sg_putting": 0.0, "lag_success": 0, "lag_total": 0, "mental_score": 0, "judgement_score": 0,
+        "cm_score": 0, # Added CM
         "putting_holes": None
     }
     supabase.table("round_stats").insert(blank).execute()
@@ -252,13 +253,14 @@ def build_master_dataframe(df_shots, list_stats):
     add_row("SGZ", "sgz")
     
     add_section_header("PUTTING")
-    add_row("Putts (#)", "abs", "putts_total")  # Replaced massive # markdown
+    add_row("Putts (#)", "abs", "putts_total") 
     add_row("SG Putting", "sg_putt")
     add_row("Lag", "lag")
     
     add_section_header("MENTAL & JUDGEMENTS")
     add_row("M", "abs", "mental_score")
     add_row("J", "abs", "judgement_score")
+    add_row("CM", "abs", "cm_score") # Added CM Row
 
     return pd.DataFrame(data)
 
@@ -570,15 +572,21 @@ if st.session_state.active_t:
 
     # --- PHASE: MENTAL & JUDGEMENT ---
     elif st.session_state.workflow_step == "Mental & Judgement":
-        st.subheader("Mental (M) & Judgements (J)")
+        st.subheader("Mental (M), Judgements (J), & Course Management (CM)")
         m_score = st.slider("Mental Score (M)", min_value=0, max_value=100, value=current_stats.get('mental_score', 0))
         j_score = st.slider("Judgement Score (J)", min_value=0, max_value=100, value=current_stats.get('judgement_score', 0))
+        cm_score = st.slider("Course Management Score (CM)", min_value=0, max_value=100, value=current_stats.get('cm_score', 0)) # Added CM Slider
         
         if st.button("Save Mental Stats"):
-            supabase.table("round_stats").update({"mental_score": m_score, "judgement_score": j_score}).eq("id", current_stats['id']).execute()
+            update_data = {
+                "mental_score": m_score, 
+                "judgement_score": j_score,
+                "cm_score": cm_score
+            }
+            supabase.table("round_stats").update(update_data).eq("id", current_stats['id']).execute()
             st.success("Saved successfully!")
 
-    # --- PHASE: MASTER DASHBOARD ---
+    # --- PHASE: MASTER DASHBOARD (UI + 2-PAGE PDF GENERATOR) ---
     elif st.session_state.workflow_step == "Dashboard":
         st.success(f"Aggregated data for **{st.session_state.active_t}**")
         
@@ -587,7 +595,6 @@ if st.session_state.active_t:
         
         df_master = build_master_dataframe(all_tournament_shots, all_round_stats)
         
-        # Bolds the category in the UI if it's a section header
         df_ui = df_master.copy()
         df_ui['Category'] = df_ui.apply(lambda r: f"**{r['Category']}**" if r['Round 1'] == "" else r['Category'], axis=1)
         
