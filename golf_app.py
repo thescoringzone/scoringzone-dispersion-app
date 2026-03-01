@@ -154,6 +154,12 @@ def build_master_dataframe(df_shots, list_stats):
     r_stats = {s['round_num']: s for s in list_stats}
     data = []
 
+    def add_section_header(title):
+        data.append({
+            "Category": title,
+            "Round 1": "", "Round 2": "", "Round 3": "", "Round 4": "", "AV / TOTAL": ""
+        })
+
     def add_row(category, logic_type, param=""):
         row_dict = {"Category": category}
         raw_sums = {'num': 0, 'den': 0, 'extra': 0}
@@ -228,20 +234,29 @@ def build_master_dataframe(df_shots, list_stats):
         row_dict["AV / TOTAL"] = av_txt
         data.append(row_dict)
 
+    add_section_header("LONG GAME")
     add_row("OTT: Driver", "driving", "OTT: Driver")
     add_row("OTT: Others", "driving", "OTT: Others")
+    
+    add_section_header("SCORING ZONE")
     add_row("151-200m", "approach", "151-200")
     add_row("101-150m", "approach", "101-150")
     add_row("50-100m", "approach", "50-100")
     add_row("GIR / 5", "abs", "gir_less_5")
     add_row("GIR", "abs", "gir")
+    
+    add_section_header("SHORT GAME")
     add_row("< 6", "sg_perc", "sg_inside_6")
     add_row("< 3", "sg_perc", "sg_inside_3")
     add_row("U&D", "sg_perc", "sg_ud")
     add_row("SGZ", "sgz")
-    add_row("# (Total Putts)", "abs", "putts_total")
+    
+    add_section_header("PUTTING")
+    add_row("Putts (#)", "abs", "putts_total")  # Replaced massive # markdown
     add_row("SG Putting", "sg_putt")
     add_row("Lag", "lag")
+    
+    add_section_header("MENTAL & JUDGEMENTS")
     add_row("M", "abs", "mental_score")
     add_row("J", "abs", "judgement_score")
 
@@ -258,8 +273,7 @@ def create_ecga_pdf(tournament, df_master, df_shots):
     pdf.cell(0, 10, txt=f"ECGA Tournament Overview: {tournament}", ln=True, align='C')
     pdf.ln(5)
     
-    # Narrower category column (35), wider stat columns (42) to prevent wrapping
-    col_w = [35, 42, 42, 42, 42, 42] 
+    col_w = [40, 42, 42, 42, 42, 42] 
     row_h = 7 
     
     pdf.set_font("Arial", 'B', 10)
@@ -273,25 +287,21 @@ def create_ecga_pdf(tournament, df_master, df_shots):
     
     for index, row in df_master.iterrows():
         cat = row['Category']
-        if cat == "OTT: Driver":
+        
+        # If it's a section header (Round 1 is blank), print a shaded divider row
+        if row['Round 1'] == "":
             pdf.set_fill_color(240, 240, 240)
-            pdf.cell(sum(col_w), row_h, txt="Long Game", border=1, fill=True, ln=True)
-        elif cat == "151-200m":
-            pdf.cell(sum(col_w), row_h, txt="Scoring Zone", border=1, fill=True, ln=True)
-        elif cat == "< 6":
-            pdf.cell(sum(col_w), row_h, txt="Short Game", border=1, fill=True, ln=True)
-        elif cat == "# (Total Putts)":
-            pdf.cell(sum(col_w), row_h, txt="Putting", border=1, fill=True, ln=True)
-        elif cat == "M":
-            pdf.cell(sum(col_w), row_h, txt="Mental & Judgements", border=1, fill=True, ln=True)
-
-        pdf.cell(col_w[0], row_h, txt=cat, border=1)
-        pdf.cell(col_w[1], row_h, txt=str(row['Round 1']), border=1, align='C')
-        pdf.cell(col_w[2], row_h, txt=str(row['Round 2']), border=1, align='C')
-        pdf.cell(col_w[3], row_h, txt=str(row['Round 3']), border=1, align='C')
-        pdf.cell(col_w[4], row_h, txt=str(row['Round 4']), border=1, align='C')
-        pdf.cell(col_w[5], row_h, txt=str(row['AV / TOTAL']), border=1, align='C')
-        pdf.ln()
+            pdf.set_font("Arial", 'B', 10)
+            pdf.cell(sum(col_w), row_h, txt=cat, border=1, fill=True, ln=True, align='L')
+            pdf.set_font("Arial", '', 10) # Reset font
+        else:
+            pdf.cell(col_w[0], row_h, txt=cat, border=1)
+            pdf.cell(col_w[1], row_h, txt=str(row['Round 1']), border=1, align='C')
+            pdf.cell(col_w[2], row_h, txt=str(row['Round 2']), border=1, align='C')
+            pdf.cell(col_w[3], row_h, txt=str(row['Round 3']), border=1, align='C')
+            pdf.cell(col_w[4], row_h, txt=str(row['Round 4']), border=1, align='C')
+            pdf.cell(col_w[5], row_h, txt=str(row['AV / TOTAL']), border=1, align='C')
+            pdf.ln()
 
     # === PAGE 2: DISPERSION CHARTS ===
     pdf.add_page()
@@ -299,7 +309,6 @@ def create_ecga_pdf(tournament, df_master, df_shots):
     pdf.cell(0, 10, txt=f"Tournament Dispersion Charts: {tournament}", ln=True, align='C')
     pdf.ln(2)
 
-    # Scoring Zone (Row 1)
     y_start = 22
     x_offsets = [10, 105, 200]
     ranges_sz = ["50-100", "101-150", "151-200"]
@@ -342,7 +351,6 @@ def create_ecga_pdf(tournament, df_master, df_shots):
         pdf.image(temp_fn, x=x_offsets[i]+12, y=y_start+18, w=60)
         if os.path.exists(temp_fn): os.remove(temp_fn)
 
-    # Off the Tee (Row 2)
     y_start = 110
     x_offsets_tee = [25, 165]
     ranges_tee = ["OTT: Driver", "OTT: Others"]
@@ -570,18 +578,19 @@ if st.session_state.active_t:
             supabase.table("round_stats").update({"mental_score": m_score, "judgement_score": j_score}).eq("id", current_stats['id']).execute()
             st.success("Saved successfully!")
 
-    # --- PHASE: MASTER DASHBOARD (UI + 2-PAGE PDF GENERATOR) ---
+    # --- PHASE: MASTER DASHBOARD ---
     elif st.session_state.workflow_step == "Dashboard":
         st.success(f"Aggregated data for **{st.session_state.active_t}**")
         
-        # Pull the data
         all_tournament_shots = st.session_state.shots_data[st.session_state.shots_data['Tournament'] == st.session_state.active_t]
         all_round_stats = load_all_tournament_stats(st.session_state.current_user, st.session_state.active_t)
         
-        # Build the Master Table via the Data Engine
         df_master = build_master_dataframe(all_tournament_shots, all_round_stats)
         
-        # Inject custom CSS to make the Category column 15% wide and prevent text wrapping
+        # Bolds the category in the UI if it's a section header
+        df_ui = df_master.copy()
+        df_ui['Category'] = df_ui.apply(lambda r: f"**{r['Category']}**" if r['Round 1'] == "" else r['Category'], axis=1)
+        
         st.markdown("""
             <style>
             .stTable table { width: 100%; }
@@ -590,12 +599,10 @@ if st.session_state.active_t:
             </style>
         """, unsafe_allow_html=True)
         
-        # Display the formatted table
-        st.table(df_master.set_index('Category'))
+        st.table(df_ui.set_index('Category'))
         
         st.divider()
         
-        # Feed the table AND the shots data into the 2-page PDF engine
         pdf_bytes = create_ecga_pdf(st.session_state.active_t, df_master, all_tournament_shots)
         
         st.download_button(
