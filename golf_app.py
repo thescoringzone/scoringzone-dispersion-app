@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
+import os
 import json
 from fpdf import FPDF
 from PIL import Image
@@ -246,17 +247,20 @@ def build_master_dataframe(df_shots, list_stats):
 
     return pd.DataFrame(data)
 
-# --- 6. ECGA 1-PAGE PDF GENERATOR ---
-def create_ecga_pdf(tournament, df_master):
+# --- 6. ECGA 2-PAGE PDF GENERATOR ---
+def create_ecga_pdf(tournament, df_master, df_shots):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=False) # Forces the PDF to stay on one page
+    pdf.set_auto_page_break(auto=False)
+    
+    # === PAGE 1: MASTER TABLE ===
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, txt=f"ECGA Tournament Overview: {tournament}", ln=True, align='C')
     pdf.ln(5)
     
-    col_w = [40, 35, 35, 35, 35, 35]
-    row_h = 7 # Tightened row height to guarantee 1-page fit
+    # Narrower category column (35), wider stat columns (42) to prevent wrapping
+    col_w = [35, 42, 42, 42, 42, 42] 
+    row_h = 7 
     
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(200, 220, 255)
@@ -288,6 +292,91 @@ def create_ecga_pdf(tournament, df_master):
         pdf.cell(col_w[4], row_h, txt=str(row['Round 4']), border=1, align='C')
         pdf.cell(col_w[5], row_h, txt=str(row['AV / TOTAL']), border=1, align='C')
         pdf.ln()
+
+    # === PAGE 2: DISPERSION CHARTS ===
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, txt=f"Tournament Dispersion Charts: {tournament}", ln=True, align='C')
+    pdf.ln(2)
+
+    # Scoring Zone (Row 1)
+    y_start = 22
+    x_offsets = [10, 105, 200]
+    ranges_sz = ["50-100", "101-150", "151-200"]
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 8, txt="Scoring Zone (Approach)", ln=True, align='L')
+    pdf.set_font("Arial", '', 9)
+
+    for i, r in enumerate(ranges_sz):
+        sub = df_shots[df_shots['Range'] == r].copy()
+        tot = len(sub)
+        stats_txt1 = f"Range: {r}m | Shots: {tot}"
+        stats_txt2 = "No shots recorded."
+        
+        if tot > 0:
+            sub['d'] = np.sqrt(sub['X']**2 + sub['Y']**2)
+            rb, rp = get_radii(r)
+            b = len(sub[sub['d'] <= rb])
+            p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
+            bog = tot - (b + p)
+            to_par = (b * -1) + (bog * 1)
+            sign = "+" if to_par > 0 else ""
+            
+            misses = sub[sub['d'] > rb]
+            sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)])
+            ll = len(misses[(misses['X'] < 0) & (misses['Y'] > 0)])
+            sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
+            lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
+            
+            stats_txt1 = f"Range: {r}m | Shots: {tot} | To Par: {sign}{to_par}"
+            stats_txt2 = f"SL: {(sl/tot)*100:.0f}% LL: {(ll/tot)*100:.0f}% SR: {(sr/tot)*100:.0f}% LR: {(lr/tot)*100:.0f}%"
+
+        pdf.set_xy(x_offsets[i], y_start + 8)
+        pdf.cell(85, 4, txt=stats_txt1, align='C')
+        pdf.set_xy(x_offsets[i], y_start + 12)
+        pdf.cell(85, 4, txt=stats_txt2, align='C')
+        
+        img = create_target_image(sub, r)
+        temp_fn = f"temp_app_{i}.png"
+        img.save(temp_fn)
+        pdf.image(temp_fn, x=x_offsets[i]+12, y=y_start+18, w=60)
+        if os.path.exists(temp_fn): os.remove(temp_fn)
+
+    # Off the Tee (Row 2)
+    y_start = 110
+    x_offsets_tee = [25, 165]
+    ranges_tee = ["OTT: Driver", "OTT: Others"]
+    pdf.set_xy(10, y_start)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 8, txt="Long Game (Off the Tee)", ln=True, align='L')
+    pdf.set_font("Arial", '', 9)
+
+    for i, r in enumerate(ranges_tee):
+        sub = df_shots[df_shots['Range'] == r].copy()
+        tot = len(sub)
+        stats_txt1 = f"{r} | Shots: {tot}"
+        stats_txt2 = "No shots recorded."
+        
+        if tot > 0:
+            sub['dx'] = sub['X'].abs()
+            in_10 = len(sub[sub['dx'] <= 10])
+            in_20 = len(sub[(sub['dx'] > 10) & (sub['dx'] <= 20)])
+            out_20 = len(sub[sub['dx'] > 20])
+            avg_dist = sub['Y'].mean()
+            
+            stats_txt1 = f"{r} | Shots: {tot} | Avg Dist: {avg_dist:.1f}m"
+            stats_txt2 = f"<10m: {(in_10/tot)*100:.0f}% | 10-20m: {(in_20/tot)*100:.0f}% | 20m+: {(out_20/tot)*100:.0f}%"
+
+        pdf.set_xy(x_offsets_tee[i], y_start + 8)
+        pdf.cell(100, 4, txt=stats_txt1, align='C')
+        pdf.set_xy(x_offsets_tee[i], y_start + 12)
+        pdf.cell(100, 4, txt=stats_txt2, align='C')
+        
+        img = create_tee_image(sub, r)
+        temp_fn = f"temp_tee_{i}.png"
+        img.save(temp_fn)
+        pdf.image(temp_fn, x=x_offsets_tee[i]+10, y=y_start+18, w=80)
+        if os.path.exists(temp_fn): os.remove(temp_fn)
 
     return bytes(pdf.output())
 
@@ -481,27 +570,36 @@ if st.session_state.active_t:
             supabase.table("round_stats").update({"mental_score": m_score, "judgement_score": j_score}).eq("id", current_stats['id']).execute()
             st.success("Saved successfully!")
 
-    # --- PHASE: MASTER DASHBOARD (UI + PDF GENERATOR) ---
+    # --- PHASE: MASTER DASHBOARD (UI + 2-PAGE PDF GENERATOR) ---
     elif st.session_state.workflow_step == "Dashboard":
         st.success(f"Aggregated data for **{st.session_state.active_t}**")
         
-        # 1. Pull the data
+        # Pull the data
         all_tournament_shots = st.session_state.shots_data[st.session_state.shots_data['Tournament'] == st.session_state.active_t]
         all_round_stats = load_all_tournament_stats(st.session_state.current_user, st.session_state.active_t)
         
-        # 2. Build the Master Table via the new Data Engine
+        # Build the Master Table via the Data Engine
         df_master = build_master_dataframe(all_tournament_shots, all_round_stats)
         
-        # 3. Display it interactively as a static, un-scrollable table with "Category" as the index
+        # Inject custom CSS to make the Category column 15% wide and prevent text wrapping
+        st.markdown("""
+            <style>
+            .stTable table { width: 100%; }
+            .stTable th, .stTable td { white-space: nowrap !important; text-align: center !important; }
+            .stTable th:first-child, .stTable td:first-child { width: 15% !important; text-align: left !important; }
+            </style>
+        """, unsafe_allow_html=True)
+        
+        # Display the formatted table
         st.table(df_master.set_index('Category'))
         
         st.divider()
         
-        # 4. Feed that exact same table into the tightened PDF engine
-        pdf_bytes = create_ecga_pdf(st.session_state.active_t, df_master)
+        # Feed the table AND the shots data into the 2-page PDF engine
+        pdf_bytes = create_ecga_pdf(st.session_state.active_t, df_master, all_tournament_shots)
         
         st.download_button(
-            label="📄 Download 1-Page Tour-Grade ECGA Overview",
+            label="📄 Download 2-Page Tour-Grade ECGA Overview",
             data=pdf_bytes,
             file_name=f"{st.session_state.active_t}_ECGA_Report.pdf",
             mime="application/pdf",
