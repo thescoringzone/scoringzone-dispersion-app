@@ -147,7 +147,7 @@ def create_tee_image(df_filtered, label):
     plt.close(fig)
     return img
 
-# --- 5. DATA AGGREGATION ENGINE (For both UI and PDF) ---
+# --- 5. DATA AGGREGATION ENGINE ---
 def build_master_dataframe(df_shots, list_stats):
     rounds = ["Round 1", "Round 2", "Round 3", "Round 4"]
     r_stats = {s['round_num']: s for s in list_stats}
@@ -246,46 +246,47 @@ def build_master_dataframe(df_shots, list_stats):
 
     return pd.DataFrame(data)
 
-# --- 6. ECGA PDF GENERATOR ---
+# --- 6. ECGA 1-PAGE PDF GENERATOR ---
 def create_ecga_pdf(tournament, df_master):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=False) # Forces the PDF to stay on one page
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, txt=f"ECGA Tournament Overview: {tournament}", ln=True, align='C')
     pdf.ln(5)
     
     col_w = [40, 35, 35, 35, 35, 35]
+    row_h = 7 # Tightened row height to guarantee 1-page fit
+    
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(200, 220, 255)
     headers = ["Category", "Round 1", "Round 2", "Round 3", "Round 4", "AV / TOTAL"]
     for i, h in enumerate(headers):
-        pdf.cell(col_w[i], 8, txt=h, border=1, align='C', fill=True)
+        pdf.cell(col_w[i], row_h, txt=h, border=1, align='C', fill=True)
     pdf.ln()
     
     pdf.set_font("Arial", '', 10)
     
-    # We iterate through the dataframe we already built!
     for index, row in df_master.iterrows():
-        # Inject section headers for PDF beauty
         cat = row['Category']
         if cat == "OTT: Driver":
             pdf.set_fill_color(240, 240, 240)
-            pdf.cell(sum(col_w), 8, txt="Long Game", border=1, fill=True, ln=True)
+            pdf.cell(sum(col_w), row_h, txt="Long Game", border=1, fill=True, ln=True)
         elif cat == "151-200m":
-            pdf.cell(sum(col_w), 8, txt="Scoring Zone", border=1, fill=True, ln=True)
+            pdf.cell(sum(col_w), row_h, txt="Scoring Zone", border=1, fill=True, ln=True)
         elif cat == "< 6":
-            pdf.cell(sum(col_w), 8, txt="Short Game", border=1, fill=True, ln=True)
+            pdf.cell(sum(col_w), row_h, txt="Short Game", border=1, fill=True, ln=True)
         elif cat == "# (Total Putts)":
-            pdf.cell(sum(col_w), 8, txt="Putting", border=1, fill=True, ln=True)
+            pdf.cell(sum(col_w), row_h, txt="Putting", border=1, fill=True, ln=True)
         elif cat == "M":
-            pdf.cell(sum(col_w), 8, txt="Mental & Judgements", border=1, fill=True, ln=True)
+            pdf.cell(sum(col_w), row_h, txt="Mental & Judgements", border=1, fill=True, ln=True)
 
-        pdf.cell(col_w[0], 8, txt=cat, border=1)
-        pdf.cell(col_w[1], 8, txt=str(row['Round 1']), border=1, align='C')
-        pdf.cell(col_w[2], 8, txt=str(row['Round 2']), border=1, align='C')
-        pdf.cell(col_w[3], 8, txt=str(row['Round 3']), border=1, align='C')
-        pdf.cell(col_w[4], 8, txt=str(row['Round 4']), border=1, align='C')
-        pdf.cell(col_w[5], 8, txt=str(row['AV / TOTAL']), border=1, align='C')
+        pdf.cell(col_w[0], row_h, txt=cat, border=1)
+        pdf.cell(col_w[1], row_h, txt=str(row['Round 1']), border=1, align='C')
+        pdf.cell(col_w[2], row_h, txt=str(row['Round 2']), border=1, align='C')
+        pdf.cell(col_w[3], row_h, txt=str(row['Round 3']), border=1, align='C')
+        pdf.cell(col_w[4], row_h, txt=str(row['Round 4']), border=1, align='C')
+        pdf.cell(col_w[5], row_h, txt=str(row['AV / TOTAL']), border=1, align='C')
         pdf.ln()
 
     return bytes(pdf.output())
@@ -491,16 +492,16 @@ if st.session_state.active_t:
         # 2. Build the Master Table via the new Data Engine
         df_master = build_master_dataframe(all_tournament_shots, all_round_stats)
         
-        # 3. Display it interactively in the app!
-        st.dataframe(df_master, use_container_width=True, hide_index=True)
+        # 3. Display it interactively as a static, un-scrollable table with "Category" as the index
+        st.table(df_master.set_index('Category'))
         
         st.divider()
         
-        # 4. Feed that exact same table into the PDF engine
+        # 4. Feed that exact same table into the tightened PDF engine
         pdf_bytes = create_ecga_pdf(st.session_state.active_t, df_master)
         
         st.download_button(
-            label="📄 Download Tour-Grade ECGA Overview",
+            label="📄 Download 1-Page Tour-Grade ECGA Overview",
             data=pdf_bytes,
             file_name=f"{st.session_state.active_t}_ECGA_Report.pdf",
             mime="application/pdf",
