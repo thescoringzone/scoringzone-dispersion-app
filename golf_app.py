@@ -19,6 +19,17 @@ def init_connection():
 
 supabase = init_connection()
 
+# PGA Tour Expected Putts Baseline (Simplified for calculator)
+pga_putts_baseline = {
+    1: 1.00, 2: 1.01, 3: 1.04, 4: 1.13, 5: 1.23, 6: 1.34, 7: 1.43, 8: 1.50, 
+    9: 1.56, 10: 1.61, 15: 1.78, 20: 1.87, 25: 1.94, 30: 2.01, 40: 2.13, 50: 2.26, 60: 2.38
+}
+
+def get_expected_putts(distance):
+    # Find the closest baseline distance
+    closest_dist = min(pga_putts_baseline.keys(), key=lambda k: abs(k - distance))
+    return pga_putts_baseline[closest_dist]
+
 # --- 2. DATA LOADING ---
 def load_shots(current_user):
     response = supabase.table("shots").select("*").eq("User", current_user).execute()
@@ -32,10 +43,10 @@ def load_round_stats(current_user, tournament, round_num):
     if response.data:
         return response.data[0]
     else:
-        # Create a blank record if it doesn't exist yet
         blank = {
             "user_name": current_user, "tournament": tournament, "round_num": round_num,
-            "gir": 0, "gir_less_5": 0, "sg_total": 0, "sg_inside_6": 0, "sg_inside_3": 0, "sg_ud": 0, "sgz_score": 0
+            "gir": 0, "gir_less_5": 0, "sg_total": 0, "sg_inside_6": 0, "sg_inside_3": 0, "sg_ud": 0, "sgz_score": 0,
+            "putts_total": 0, "sg_putting": 0.0, "lag_success": 0, "lag_total": 0, "mental_score": 0, "judgement_score": 0
         }
         supabase.table("round_stats").insert(blank).execute()
         return blank
@@ -164,8 +175,8 @@ if st.session_state.active_t:
 if st.session_state.active_t:
     st.title(f"{st.session_state.active_t} - {st.session_state.active_r}")
     
-    # Workflow Navigation
-    steps = ["Driving", "Scoring Zone", "Short Game"] # Putting & Mental coming in Phase 2
+    # Workflow Navigation Updated
+    steps = ["Driving", "Scoring Zone", "Short Game", "Putting", "Mental & Judgement"] 
     selected_step = st.radio("Input Phase:", steps, horizontal=True, index=steps.index(st.session_state.workflow_step))
     if selected_step != st.session_state.workflow_step:
         st.session_state.workflow_step = selected_step
@@ -196,7 +207,7 @@ if st.session_state.active_t:
                     dx = df_v['X'].abs()
                     fwys = len(df_v[dx <= 10])
                     pens = len(df_v[dx > 20])
-                    st.success(f"**Tournament Sheet Stat:** {(fwys/tot)*100:.0f}% ({pens})") # e.g., 75% (1)
+                    st.success(f"**Tournament Sheet Stat:** {(fwys/tot)*100:.0f}% ({pens})") 
                     if st.button(f"Undo Last", key=f"un_{r_label}"):
                         supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
                         st.session_state.shots_data = load_shots(st.session_state.current_user); st.rerun()
@@ -224,7 +235,7 @@ if st.session_state.active_t:
                     bog = len(df_v[df_v['d'] > rp])
                     tot = len(df_v)
                     to_par = (b * -1) + (bog * 1)
-                    st.info(f"**Tournament Sheet Stat:** {to_par}({tot})") # e.g., -1(3)
+                    st.info(f"**Tournament Sheet Stat:** {to_par}({tot})") 
                     if st.button(f"Undo Last", key=f"un_{r_label}"):
                         supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
                         st.session_state.shots_data = load_shots(st.session_state.current_user); st.rerun()
@@ -246,7 +257,6 @@ if st.session_state.active_t:
         st.subheader("Short Game (SG)")
         st.caption("Set your total SG shots first. This denominator applies to all categories below.")
         
-        # The Master Denominator
         sg_total = st.number_input("Total SG Shots (#)", min_value=0, value=current_stats.get('sg_total', 0))
         
         col1, col2 = st.columns(2)
@@ -270,6 +280,55 @@ if st.session_state.active_t:
         if st.button("Save Short Game Stats"):
             update_data = {
                 "sg_total": sg_total, "sg_inside_6": sg_6, "sg_inside_3": sg_3, "sg_ud": sg_ud, "sgz_score": sgz
+            }
+            supabase.table("round_stats").update(update_data).eq("id", current_stats['id']).execute()
+            st.success("Saved successfully!")
+
+    # --- PHASE: PUTTING ---
+    elif st.session_state.workflow_step == "Putting":
+        st.subheader("Putting (P)")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("### 1. Strokes Gained Calculator")
+            st.caption("Calculate your SG per hole, then enter the round total below.")
+            putt_dist = st.number_input("Initial Putt Distance (ft)", min_value=1, max_value=100, value=10)
+            putts_taken = st.number_input("Putts Taken", min_value=1, max_value=5, value=2)
+            expected = get_expected_putts(putt_dist)
+            sg_hole = expected - putts_taken
+            sign = "+" if sg_hole > 0 else ""
+            st.info(f"**SG for this hole:** {sign}{sg_hole:.2f} (Expected: {expected:.2f})")
+            
+        with col2:
+            st.markdown("### 2. Round Output")
+            total_putts = st.number_input("Total Putts for Round (#)", min_value=0, max_value=100, value=current_stats.get('putts_total', 0))
+            total_sg = st.number_input("Total SG Putting", value=float(current_stats.get('sg_putting', 0.0)), format="%.2f")
+            
+            st.markdown("### 3. Lag Putting")
+            lag_total = st.number_input("Total Lag Putts", min_value=0, value=current_stats.get('lag_total', 0))
+            lag_success = st.number_input("Lags inside putter length", min_value=0, max_value=lag_total if lag_total > 0 else 0, value=current_stats.get('lag_success', 0))
+            if lag_total > 0:
+                st.write(f"**Lag:** {(lag_success/lag_total)*100:.0f}%")
+
+        if st.button("Save Putting Stats"):
+            update_data = {
+                "putts_total": total_putts, "sg_putting": total_sg, 
+                "lag_total": lag_total, "lag_success": lag_success
+            }
+            supabase.table("round_stats").update(update_data).eq("id", current_stats['id']).execute()
+            st.success("Saved successfully!")
+
+    # --- PHASE: MENTAL & JUDGEMENT ---
+    elif st.session_state.workflow_step == "Mental & Judgement":
+        st.subheader("Mental (M) & Judgements (J)")
+        st.caption("Rate your performance from 0 to 100.")
+        
+        m_score = st.slider("Mental Score (M)", min_value=0, max_value=100, value=current_stats.get('mental_score', 0))
+        j_score = st.slider("Judgement Score (J)", min_value=0, max_value=100, value=current_stats.get('judgement_score', 0))
+        
+        if st.button("Save Mental Stats"):
+            update_data = {
+                "mental_score": m_score, "judgement_score": j_score
             }
             supabase.table("round_stats").update(update_data).eq("id", current_stats['id']).execute()
             st.success("Saved successfully!")
