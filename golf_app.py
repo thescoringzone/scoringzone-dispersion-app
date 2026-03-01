@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
+import json
 from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
 from supabase import create_client, Client
@@ -19,14 +20,15 @@ def init_connection():
 
 supabase = init_connection()
 
-# PGA Tour Expected Putts Baseline (Simplified for calculator)
+# PGA Tour Expected Putts Baseline
 pga_putts_baseline = {
     1: 1.00, 2: 1.01, 3: 1.04, 4: 1.13, 5: 1.23, 6: 1.34, 7: 1.43, 8: 1.50, 
-    9: 1.56, 10: 1.61, 15: 1.78, 20: 1.87, 25: 1.94, 30: 2.01, 40: 2.13, 50: 2.26, 60: 2.38
+    9: 1.56, 10: 1.61, 15: 1.78, 20: 1.87, 25: 1.94, 30: 2.01, 40: 2.13, 50: 2.26, 60: 2.38,
+    70: 2.48, 80: 2.58, 90: 2.65, 100: 2.71
 }
 
 def get_expected_putts(distance):
-    # Find the closest baseline distance
+    # Finds the closest baseline distance to calculate SG
     closest_dist = min(pga_putts_baseline.keys(), key=lambda k: abs(k - distance))
     return pga_putts_baseline[closest_dist]
 
@@ -46,7 +48,8 @@ def load_round_stats(current_user, tournament, round_num):
         blank = {
             "user_name": current_user, "tournament": tournament, "round_num": round_num,
             "gir": 0, "gir_less_5": 0, "sg_total": 0, "sg_inside_6": 0, "sg_inside_3": 0, "sg_ud": 0, "sgz_score": 0,
-            "putts_total": 0, "sg_putting": 0.0, "lag_success": 0, "lag_total": 0, "mental_score": 0, "judgement_score": 0
+            "putts_total": 0, "sg_putting": 0.0, "lag_success": 0, "lag_total": 0, "mental_score": 0, "judgement_score": 0,
+            "putting_holes": None
         }
         supabase.table("round_stats").insert(blank).execute()
         return blank
@@ -175,7 +178,6 @@ if st.session_state.active_t:
 if st.session_state.active_t:
     st.title(f"{st.session_state.active_t} - {st.session_state.active_r}")
     
-    # Workflow Navigation Updated
     steps = ["Driving", "Scoring Zone", "Short Game", "Putting", "Mental & Judgement"] 
     selected_step = st.radio("Input Phase:", steps, horizontal=True, index=steps.index(st.session_state.workflow_step))
     if selected_step != st.session_state.workflow_step:
@@ -183,7 +185,6 @@ if st.session_state.active_t:
         st.rerun()
     st.divider()
 
-    # Get current round stats
     current_stats = load_round_stats(st.session_state.current_user, st.session_state.active_t, st.session_state.active_r)
 
     # --- PHASE: DRIVING ---
@@ -286,37 +287,57 @@ if st.session_state.active_t:
 
     # --- PHASE: PUTTING ---
     elif st.session_state.workflow_step == "Putting":
-        st.subheader("Putting (P)")
+        st.subheader("18-Hole SG Putting Calculator")
+        st.caption("Enter distance and putts taken for each hole. Totals update automatically.")
         
+        # Load existing grid or create blank 18 holes
+        raw_grid = current_stats.get('putting_holes')
+        if raw_grid and isinstance(raw_grid, list) and len(raw_grid) == 18:
+            df_putts = pd.DataFrame(raw_grid)
+        else:
+            df_putts = pd.DataFrame({
+                "Hole": [f"Hole {i}" for i in range(1, 19)],
+                "Distance (ft)": [0]*18,
+                "Putts": [0]*18
+            })
+
+        # Display Editable Grid
+        edited_df = st.data_editor(df_putts, hide_index=True, use_container_width=True, num_rows="fixed")
+        
+        # Calculate Totals Dynamically
+        total_putts = int(edited_df["Putts"].sum())
+        total_sg = 0.0
+        
+        for index, row in edited_df.iterrows():
+            dist = row["Distance (ft)"]
+            putts = row["Putts"]
+            if dist > 0 and putts > 0:
+                expected = get_expected_putts(dist)
+                total_sg += (expected - putts)
+        
+        # Display Auto-Calculated Totals
         col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### 1. Strokes Gained Calculator")
-            st.caption("Calculate your SG per hole, then enter the round total below.")
-            putt_dist = st.number_input("Initial Putt Distance (ft)", min_value=1, max_value=100, value=10)
-            putts_taken = st.number_input("Putts Taken", min_value=1, max_value=5, value=2)
-            expected = get_expected_putts(putt_dist)
-            sg_hole = expected - putts_taken
-            sign = "+" if sg_hole > 0 else ""
-            st.info(f"**SG for this hole:** {sign}{sg_hole:.2f} (Expected: {expected:.2f})")
-            
-        with col2:
-            st.markdown("### 2. Round Output")
-            total_putts = st.number_input("Total Putts for Round (#)", min_value=0, max_value=100, value=current_stats.get('putts_total', 0))
-            total_sg = st.number_input("Total SG Putting", value=float(current_stats.get('sg_putting', 0.0)), format="%.2f")
-            
-            st.markdown("### 3. Lag Putting")
-            lag_total = st.number_input("Total Lag Putts", min_value=0, value=current_stats.get('lag_total', 0))
-            lag_success = st.number_input("Lags inside putter length", min_value=0, max_value=lag_total if lag_total > 0 else 0, value=current_stats.get('lag_success', 0))
-            if lag_total > 0:
-                st.write(f"**Lag:** {(lag_success/lag_total)*100:.0f}%")
+        col1.metric("Total Putts", total_putts)
+        col2.metric("Total SG Putting", f"{total_sg:+.2f}")
+        
+        st.divider()
+        st.markdown("### Lag Putting")
+        lag_total = st.number_input("Total Lag Putts", min_value=0, value=current_stats.get('lag_total', 0))
+        lag_success = st.number_input("Lags inside putter length", min_value=0, max_value=lag_total if lag_total > 0 else 0, value=current_stats.get('lag_success', 0))
+        if lag_total > 0:
+            st.write(f"**Lag:** {(lag_success/lag_total)*100:.0f}%")
 
         if st.button("Save Putting Stats"):
+            grid_json = edited_df.to_dict('records') # Convert grid for Supabase
             update_data = {
-                "putts_total": total_putts, "sg_putting": total_sg, 
-                "lag_total": lag_total, "lag_success": lag_success
+                "putting_holes": grid_json,
+                "putts_total": total_putts, 
+                "sg_putting": round(total_sg, 2), 
+                "lag_total": lag_total, 
+                "lag_success": lag_success
             }
             supabase.table("round_stats").update(update_data).eq("id", current_stats['id']).execute()
-            st.success("Saved successfully!")
+            st.success("Putting stats saved successfully!")
 
     # --- PHASE: MENTAL & JUDGEMENT ---
     elif st.session_state.workflow_step == "Mental & Judgement":
