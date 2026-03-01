@@ -5,14 +5,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
 import os
-import json
 from fpdf import FPDF
 from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
-from supabase import create_client, Client
+from supabase import create_client
 
 # --- 1. APP CONFIG & SECRETS ---
-st.set_page_config(page_title="ECGA Elite Tracker", layout="wide")
+st.set_page_config(page_title="The Score Code", layout="wide")
 
 @st.cache_resource
 def init_connection():
@@ -49,34 +48,19 @@ def load_round_stats(current_user, tournament, round_num):
         "putts_total": 0, "sg_putting": 0.0, "lag_success": 0, "lag_total": 0, "mental_score": 0, "judgement_score": 0,
         "cm_score": 0, "putting_holes": None
     }
-    # Auto-create row so we have an ID to update
     res = supabase.table("round_stats").insert(blank).execute()
     return res.data[0]
 
-def load_all_tournament_stats(current_user, tournament):
-    response = supabase.table("round_stats").select("*").eq("user_name", current_user).eq("tournament", tournament).execute()
+def load_all_stats(current_user):
+    response = supabase.table("round_stats").select("*").eq("user_name", current_user).execute()
     return response.data if response.data else []
 
-# The universal Auto-Save Engine
 def auto_save_stat(db_column, widget_key, record_id):
     val = st.session_state[widget_key]
     supabase.table("round_stats").update({db_column: val}).eq("id", record_id).execute()
-    st.toast(f"☁️ Saved securely to cloud", icon="✅")
+    st.toast("☁️ Saved securely to cloud", icon="✅")
 
-# --- 3. STATE MANAGEMENT ---
-st.sidebar.title("👤 Player Profile")
-input_user = st.sidebar.text_input("Username:", value="Guest").strip()
-st.session_state.current_user = input_user if input_user else "Guest"
-
-if 'shots_data' not in st.session_state or st.session_state.get('last_user') != st.session_state.current_user:
-    st.session_state.shots_data = load_shots(st.session_state.current_user)
-    st.session_state.last_user = st.session_state.current_user
-
-if 'active_t' not in st.session_state: st.session_state.active_t = None
-if 'active_r' not in st.session_state: st.session_state.active_r = "Round 1"
-if 'workflow_step' not in st.session_state: st.session_state.workflow_step = "Tournament Hub"
-
-# --- 4. VISUAL ENGINES ---
+# --- 3. VISUAL ENGINES ---
 def get_radii(label):
     if "50-100" in label: return 3, 6
     if "101-150" in label: return 4, 8
@@ -125,7 +109,6 @@ def create_tee_image(df_filtered, label):
     rect = patches.Rectangle((-x_limit, y_min), x_limit*2, y_max-y_min, linewidth=4, edgecolor='black', facecolor='white')
     ax.add_patch(rect)
     ax.axvspan(-10, 10, facecolor='#ADD8E6', alpha=0.4)
-    
     ax.axvline(0, color='blue', linestyle='solid', linewidth=2)
     ax.axvline(-10, color='blue', linestyle='dashed', linewidth=2)
     ax.axvline(10, color='blue', linestyle='dashed', linewidth=2)
@@ -155,91 +138,99 @@ def create_tee_image(df_filtered, label):
     plt.close(fig)
     return img
 
-# --- 5. DATA AGGREGATION ENGINE ---
-def build_master_dataframe(df_shots, list_stats):
-    rounds = ["Round 1", "Round 2", "Round 3", "Round 4"]
-    r_stats = {s['round_num']: s for s in list_stats}
+# --- 4. DATA AGGREGATION ENGINE (ROUND & SEASON) ---
+def calc_metrics(df_s, list_s, logic_type, param):
+    num, den, extra = 0, 0, 0
+    if logic_type == "driving":
+        df_d = df_s[df_s['Range'] == param]
+        den = len(df_d)
+        if den > 0:
+            num = len(df_d[df_d['X'].abs() <= 10])
+            extra = len(df_d[df_d['X'].abs() > 20])
+    elif logic_type == "approach":
+        df_a = df_s[df_s['Range'] == param]
+        den = len(df_a)
+        if den > 0:
+            df_a = df_a.copy()
+            df_a['d'] = np.sqrt(df_a['X']**2 + df_a['Y']**2)
+            rb, rp = get_radii(param)
+            b = len(df_a[df_a['d'] <= rb])
+            bog = len(df_a[df_a['d'] > rp])
+            num = (b * -1) + (bog * 1)
+    elif logic_type == "abs":
+        for s in list_s:
+            v = s.get(param, 0)
+            if v != 0: num += v; den += 1
+    elif logic_type == "sg_perc":
+        for s in list_s:
+            num += s.get(param, 0)
+            den += s.get('sg_total', 0)
+    elif logic_type == "sgz":
+        for s in list_s:
+            num += s.get('sgz_score', 0)
+            den += s.get('sg_total', 0)
+    elif logic_type == "lag":
+        for s in list_s:
+            num += s.get('lag_success', 0)
+            den += s.get('lag_total', 0)
+    elif logic_type == "sg_putt":
+        for s in list_s:
+            v = s.get('sg_putting', 0.0)
+            if v != 0: num += v; den += 1
+    return num, den, extra
+
+def format_cell(logic_type, num, den, extra):
+    if den == 0: return "-"
+    if logic_type == "driving": return f"{(num/den)*100:.0f}% ({extra})"
+    if logic_type == "approach":
+        sign = "+" if num > 0 else ""
+        return f"{sign}{num}({den})"
+    if logic_type in ["abs", "sg_putt"]:
+        val = num / den
+        if logic_type == "sg_putt":
+            sign = "+" if val > 0 else ""
+            return f"{sign}{val:.2f}"
+        return f"{val:.1f}"
+    if logic_type in ["sg_perc", "lag"]: return f"{(num/den)*100:.0f}%"
+    if logic_type == "sgz": return f"{num}({den})"
+    return "-"
+
+def build_master_dataframe(df_shots, list_stats, mode="tournament"):
+    if mode == "tournament":
+        headers = ["Round 1", "Round 2", "Round 3", "Round 4"]
+    else:
+        all_ts = list(dict.fromkeys([s['tournament'] for s in list_stats] + df_shots['Tournament'].unique().tolist()))
+        headers = all_ts[-4:] # Last 4 tournaments
+        pad = [" ", "  ", "   ", "    "]
+        while len(headers) < 4: headers.append(pad[len(headers)])
+
     data = []
-
     def add_section_header(title):
-        data.append({
-            "Category": title,
-            "Round 1": "", "Round 2": "", "Round 3": "", "Round 4": "", "AV / TOTAL": ""
-        })
+        row = {"Category": title, "AV / TOTAL": ""}
+        for h in headers: row[h] = ""
+        data.append(row)
 
-    def add_row(category, logic_type, param=""):
-        row_dict = {"Category": category}
-        raw_sums = {'num': 0, 'den': 0, 'extra': 0}
+    def add_row(cat, logic_type, param=""):
+        row = {"Category": cat}
+        tot_num, tot_den, tot_extra = 0, 0, 0
         
-        for r_name in rounds:
-            cell_txt = "-"
-            df_r = df_shots[(df_shots['Round'] == r_name)]
-            stat_r = r_stats.get(r_name, {})
+        for h in headers:
+            if h.strip() == "":
+                row[h] = "-"
+                continue
+            if mode == "tournament":
+                df_s = df_shots[df_shots['Round'] == h]
+                list_s = [s for s in list_stats if s['round_num'] == h]
+            else:
+                df_s = df_shots[df_shots['Tournament'] == h]
+                list_s = [s for s in list_stats if s['tournament'] == h]
             
-            if logic_type == "driving":
-                df_d = df_r[df_r['Range'] == param]
-                tot = len(df_d)
-                if tot > 0:
-                    fwys = len(df_d[df_d['X'].abs() <= 10])
-                    pens = len(df_d[df_d['X'].abs() > 20])
-                    cell_txt = f"{(fwys/tot)*100:.0f}% ({pens})"
-                    raw_sums['num'] += fwys; raw_sums['den'] += tot; raw_sums['extra'] += pens
-            elif logic_type == "approach":
-                df_a = df_r[df_r['Range'] == param]
-                tot = len(df_a)
-                if tot > 0:
-                    df_a['d'] = np.sqrt(df_a['X']**2 + df_a['Y']**2)
-                    rb, rp = get_radii(param)
-                    b = len(df_a[df_a['d'] <= rb])
-                    bog = len(df_a[df_a['d'] > rp])
-                    to_par = (b * -1) + (bog * 1)
-                    sign = "+" if to_par > 0 else ""
-                    cell_txt = f"{sign}{to_par}({tot})"
-                    raw_sums['num'] += to_par; raw_sums['den'] += tot
-            elif logic_type == "abs":
-                val = stat_r.get(param, 0)
-                if val != 0: cell_txt = str(val); raw_sums['num'] += val; raw_sums['den'] += 1
-            elif logic_type == "sg_perc":
-                num = stat_r.get(param, 0); den = stat_r.get('sg_total', 0)
-                if den > 0:
-                    cell_txt = f"{(num/den)*100:.0f}%"
-                    raw_sums['num'] += num; raw_sums['den'] += den
-            elif logic_type == "sgz":
-                sgz = stat_r.get('sgz_score', 0); den = stat_r.get('sg_total', 0)
-                if den > 0:
-                    cell_txt = f"{sgz}({den})"
-                    raw_sums['num'] += sgz; raw_sums['den'] += den
-            elif logic_type == "lag":
-                num = stat_r.get('lag_success', 0); den = stat_r.get('lag_total', 0)
-                if den > 0:
-                    cell_txt = f"{(num/den)*100:.0f}%"
-                    raw_sums['num'] += num; raw_sums['den'] += den
-            elif logic_type == "sg_putt":
-                val = stat_r.get('sg_putting', 0.0)
-                if val != 0:
-                    sign = "+" if val > 0 else ""
-                    cell_txt = f"{sign}{val:.2f}"
-                    raw_sums['num'] += val; raw_sums['den'] += 1
+            n, d, e = calc_metrics(df_s, list_s, logic_type, param)
+            row[h] = format_cell(logic_type, n, d, e)
             
-            row_dict[r_name] = cell_txt
-            
-        av_txt = "-"
-        if raw_sums['den'] > 0:
-            if logic_type == "driving": av_txt = f"{(raw_sums['num']/raw_sums['den'])*100:.0f}% ({raw_sums['extra']})"
-            elif logic_type == "approach":
-                sign = "+" if raw_sums['num'] > 0 else ""
-                av_txt = f"{sign}{raw_sums['num']}({raw_sums['den']})"
-            elif logic_type in ["abs", "sg_putt"]: 
-                val = raw_sums['num'] / raw_sums['den']
-                if logic_type == "sg_putt":
-                    sign = "+" if val > 0 else ""
-                    av_txt = f"{sign}{val:.2f}"
-                else: av_txt = f"{val:.1f}"
-            elif logic_type in ["sg_perc", "lag"]: av_txt = f"{(raw_sums['num']/raw_sums['den'])*100:.0f}%"
-            elif logic_type == "sgz": av_txt = f"{raw_sums['num']}({raw_sums['den']})"
-            
-        row_dict["AV / TOTAL"] = av_txt
-        data.append(row_dict)
+        n_all, d_all, e_all = calc_metrics(df_shots, list_stats, logic_type, param)
+        row["AV / TOTAL"] = format_cell(logic_type, n_all, d_all, e_all)
+        data.append(row)
 
     add_section_header("LONG GAME")
     add_row("OTT: Driver", "driving", "OTT: Driver")
@@ -270,50 +261,49 @@ def build_master_dataframe(df_shots, list_stats):
 
     return pd.DataFrame(data)
 
-# --- 6. ECGA 2-PAGE PDF GENERATOR ---
-def create_ecga_pdf(tournament, df_master, df_shots):
+# --- 5. ECGA 2-PAGE PDF GENERATOR ---
+def create_ecga_pdf(title, df_master, df_shots):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=False)
     
     # === PAGE 1: MASTER TABLE ===
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, txt=f"ECGA Tournament Overview: {tournament}", ln=True, align='C')
+    pdf.cell(0, 10, txt=f"The Score Code Overview: {title}", ln=True, align='C')
     pdf.ln(5)
     
     col_w = [40, 42, 42, 42, 42, 42] 
     row_h = 7 
+    headers = list(df_master.columns)
     
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(200, 220, 255)
-    headers = ["Category", "Round 1", "Round 2", "Round 3", "Round 4", "AV / TOTAL"]
     for i, h in enumerate(headers):
-        pdf.cell(col_w[i], row_h, txt=h, border=1, align='C', fill=True)
+        pdf.cell(col_w[i], row_h, txt=h.strip(), border=1, align='C', fill=True)
     pdf.ln()
     
     pdf.set_font("Arial", '', 10)
     
     for index, row in df_master.iterrows():
         cat = row['Category']
-        
-        if row['Round 1'] == "":
+        if row[headers[1]] == "":
             pdf.set_fill_color(240, 240, 240)
             pdf.set_font("Arial", 'B', 10)
             pdf.cell(sum(col_w), row_h, txt=cat, border=1, fill=True, ln=True, align='L')
             pdf.set_font("Arial", '', 10) 
         else:
             pdf.cell(col_w[0], row_h, txt=cat, border=1)
-            pdf.cell(col_w[1], row_h, txt=str(row['Round 1']), border=1, align='C')
-            pdf.cell(col_w[2], row_h, txt=str(row['Round 2']), border=1, align='C')
-            pdf.cell(col_w[3], row_h, txt=str(row['Round 3']), border=1, align='C')
-            pdf.cell(col_w[4], row_h, txt=str(row['Round 4']), border=1, align='C')
-            pdf.cell(col_w[5], row_h, txt=str(row['AV / TOTAL']), border=1, align='C')
+            pdf.cell(col_w[1], row_h, txt=str(row[headers[1]]), border=1, align='C')
+            pdf.cell(col_w[2], row_h, txt=str(row[headers[2]]), border=1, align='C')
+            pdf.cell(col_w[3], row_h, txt=str(row[headers[3]]), border=1, align='C')
+            pdf.cell(col_w[4], row_h, txt=str(row[headers[4]]), border=1, align='C')
+            pdf.cell(col_w[5], row_h, txt=str(row[headers[5]]), border=1, align='C')
             pdf.ln()
 
     # === PAGE 2: DISPERSION CHARTS ===
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, txt=f"Tournament Dispersion Charts: {tournament}", ln=True, align='C')
+    pdf.cell(0, 10, txt=f"Dispersion Analytics: {title}", ln=True, align='C')
     pdf.ln(2)
 
     y_start = 22
@@ -395,62 +385,164 @@ def create_ecga_pdf(tournament, df_master, df_shots):
 
     return bytes(pdf.output())
 
-# --- 7. NAVIGATION LOGIC ---
-st.sidebar.divider()
-st.sidebar.header("Tournament Setup")
-with st.sidebar.expander("➕ New Tournament"):
-    t_name = st.text_input("Name:")
-    if st.button("Create & Open"):
-        if t_name:
-            st.session_state.active_t = t_name
-            st.session_state.active_r = "Round 1"
-            st.session_state.workflow_step = "Tournament Hub"
+# --- 6. GLOBAL STATE LOGIC ---
+if 'page' not in st.session_state: st.session_state.page = "Login"
+if 'current_user' not in st.session_state: st.session_state.current_user = None
+
+# --- 7. ROUTING: LOGIN GATE ---
+if st.session_state.page == "Login" or not st.session_state.current_user:
+    st.markdown("<h1 style='text-align: center; font-size: 4em; margin-top: 10%;'>The Score Code</h1>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<h3 style='text-align: center; color: gray;'>Elite Performance Platform</h3>", unsafe_allow_html=True)
+        st.write("")
+        username_input = st.text_input("Enter Username to Access Vault", key="login_input").strip()
+        if st.button("Authenticate", use_container_width=True):
+            if username_input:
+                st.session_state.current_user = username_input
+                st.session_state.shots_data = load_shots(username_input)
+                st.session_state.active_t = None
+                st.session_state.page = "Season Hub"
+                st.rerun()
+
+# --- 8. ROUTING: SECURE PLATFORM ---
+else:
+    # GLOBAL SIDEBAR NAVIGATION
+    st.sidebar.title("👤 Player Profile")
+    st.sidebar.write(f"**{st.session_state.current_user}**")
+    st.sidebar.button("Log Out", on_click=lambda: st.session_state.update(page="Login", current_user=None))
+    
+    st.sidebar.divider()
+    st.sidebar.header("🧭 Navigation")
+    
+    if st.sidebar.button("🏠 Season Hub", use_container_width=True):
+        st.session_state.active_t = None
+        st.session_state.page = "Season Hub"
+        st.rerun()
+        
+    if st.sidebar.button("📊 Season Master Dashboard", use_container_width=True):
+        st.session_state.page = "Season Master"
+        st.rerun()
+        
+    if st.session_state.get('active_t'):
+        st.sidebar.divider()
+        if st.sidebar.button(f"🔙 Back to {st.session_state.active_t} Hub", use_container_width=True):
+            st.session_state.page = "Tournament Hub"
             st.rerun()
 
-all_t = st.session_state.shots_data['Tournament'].unique().tolist() if not st.session_state.shots_data.empty else []
-t_select = st.sidebar.selectbox("Select Tournament:", ["None"] + all_t, index=0 if st.session_state.active_t is None else all_t.index(st.session_state.active_t) + 1)
-if t_select != "None" and t_select != st.session_state.active_t:
-    st.session_state.active_t = t_select
-    st.session_state.active_r = "Round 1"
-    st.session_state.workflow_step = "Tournament Hub"
-    st.rerun()
+    # --- PAGE: SEASON HUB ---
+    if st.session_state.page == "Season Hub":
+        st.title("🏠 The Score Code - Season Hub")
+        st.write("Manage your events or create a new one.")
+        
+        with st.expander("➕ Create New Tournament"):
+            new_t = st.text_input("Tournament Name:")
+            if st.button("Create & Enter Hub"):
+                if new_t:
+                    st.session_state.active_t = new_t
+                    st.session_state.active_r = "Round 1"
+                    st.session_state.page = "Tournament Hub"
+                    st.rerun()
+        
+        st.divider()
+        all_t = st.session_state.shots_data['Tournament'].unique().tolist() if not st.session_state.shots_data.empty else []
+        if all_t:
+            cols = st.columns(4)
+            for i, t in enumerate(all_t):
+                with cols[i % 4]:
+                    st.markdown(f"#### ⛳ {t}")
+                    if st.button(f"Enter Hub", key=f"t_{t}", use_container_width=True):
+                        st.session_state.active_t = t
+                        st.session_state.active_r = "Round 1"
+                        st.session_state.page = "Tournament Hub"
+                        st.rerun()
+        else:
+            st.info("No tournaments logged yet. Create one above to get started!")
 
-# --- 8. MAIN WORKFLOW ---
-if st.session_state.active_t:
-    
-    # Primary Navigation bar
-    steps = ["Tournament Hub", "Driving", "Scoring Zone", "Short Game", "Putting", "Mental & Judgement", "Master Dashboard"] 
-    selected_step = st.radio("Navigation:", steps, horizontal=True, index=steps.index(st.session_state.workflow_step) if st.session_state.workflow_step in steps else 0)
-    if selected_step != st.session_state.workflow_step:
-        st.session_state.workflow_step = selected_step
-        st.rerun()
-    st.divider()
-
-    # --- PHASE: TOURNAMENT HUB ---
-    if st.session_state.workflow_step == "Tournament Hub":
+    # --- PAGE: TOURNAMENT HUB ---
+    elif st.session_state.page == "Tournament Hub":
         st.title(f"⛳ {st.session_state.active_t} Hub")
         st.write("Select a round to start entering your statistics.")
         
         c1, c2, c3, c4 = st.columns(4)
-        rounds_layout = zip([c1, c2, c3, c4], ["Round 1", "Round 2", "Round 3", "Round 4"])
-        
-        for col, r_name in rounds_layout:
+        for col, r_name in zip([c1, c2, c3, c4], ["Round 1", "Round 2", "Round 3", "Round 4"]):
             with col:
                 st.markdown(f"### {r_name}")
-                if st.button(f"Edit {r_name}", use_container_width=True, key=f"btn_{r_name}"):
+                if st.button(f"Edit Data", use_container_width=True, key=f"btn_{r_name}"):
                     st.session_state.active_r = r_name
                     st.session_state.workflow_step = "Driving"
+                    st.session_state.page = "Data Entry"
                     st.rerun()
+        
+        st.divider()
+        st.subheader("Tournament Tools")
+        if st.button("📊 View Tournament Dashboard", use_container_width=True):
+            st.session_state.workflow_step = "Master Dashboard"
+            st.session_state.page = "Data Entry"
+            st.rerun()
 
-    else:
-        # Load stats for the explicitly selected round in the other phases
+    # --- PAGE: SEASON MASTER DASHBOARD ---
+    elif st.session_state.page == "Season Master":
+        st.title("📊 Season Master Dashboard")
+        st.write("Accumulated statistics across your entire season. The columns represent your most recent tournaments.")
+        
+        all_shots = load_shots(st.session_state.current_user)
+        all_stats = load_all_stats(st.session_state.current_user)
+        
+        if not all_shots.empty or all_stats:
+            df_master = build_master_dataframe(all_shots, all_stats, mode="season")
+            df_ui = df_master.copy()
+            df_ui['Category'] = df_ui.apply(lambda r: f"**{r['Category']}**" if r[df_master.columns[1]] == "" else r['Category'], axis=1)
+            
+            st.markdown("""
+                <style>
+                .stTable table { width: 100%; }
+                .stTable th, .stTable td { white-space: nowrap !important; text-align: center !important; }
+                .stTable th:first-child, .stTable td:first-child { width: 15% !important; text-align: left !important; }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            st.table(df_ui.set_index('Category'))
+            
+            pdf_bytes = create_ecga_pdf("Season Master", df_master, all_shots)
+            st.download_button(
+                label="📄 Download Season-Long 2-Page Report",
+                data=pdf_bytes,
+                file_name=f"{st.session_state.current_user}_Season_Master.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+            
+            st.divider()
+            st.subheader("Season Dispersion Analytics")
+            st.write("### Scoring Zone (Approach)")
+            c1, c2, c3 = st.columns(3)
+            with c1: st.image(create_target_image(all_shots[all_shots['Range'] == '50-100'], '50-100'))
+            with c2: st.image(create_target_image(all_shots[all_shots['Range'] == '101-150'], '101-150'))
+            with c3: st.image(create_target_image(all_shots[all_shots['Range'] == '151-200'], '151-200'))
+            
+            st.write("### Long Game (Off the Tee)")
+            c4, c5 = st.columns(2)
+            with c4: st.image(create_tee_image(all_shots[all_shots['Range'] == 'OTT: Driver'], 'OTT: Driver'))
+            with c5: st.image(create_tee_image(all_shots[all_shots['Range'] == 'OTT: Others'], 'OTT: Others'))
+
+        else:
+            st.info("No data available yet for the season.")
+
+    # --- PAGE: DATA ENTRY (The 6 Tabs) ---
+    elif st.session_state.page == "Data Entry":
+        st.title(f"{st.session_state.active_t} - {st.session_state.active_r if st.session_state.workflow_step != 'Master Dashboard' else 'Tournament Dashboard'}")
+        
+        steps = ["Driving", "Scoring Zone", "Short Game", "Putting", "Mental & Judgement", "Master Dashboard"] 
+        selected_step = st.radio("Phase:", steps, horizontal=True, index=steps.index(st.session_state.workflow_step) if st.session_state.workflow_step in steps else 0)
+        if selected_step != st.session_state.workflow_step:
+            st.session_state.workflow_step = selected_step
+            st.rerun()
+        st.divider()
+
         current_stats = load_round_stats(st.session_state.current_user, st.session_state.active_t, st.session_state.active_r)
         cid = current_stats['id']
-        
-        if st.session_state.workflow_step != "Master Dashboard":
-            st.title(f"{st.session_state.active_t} - {st.session_state.active_r}")
 
-        # --- PHASE: DRIVING ---
         if st.session_state.workflow_step == "Driving":
             t_tabs = st.tabs(["OTT: Driver", "OTT: Others"])
             for i, r_label in enumerate(["OTT: Driver", "OTT: Others"]):
@@ -477,7 +569,6 @@ if st.session_state.active_t:
                             supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
                             st.session_state.shots_data = load_shots(st.session_state.current_user); st.rerun()
 
-        # --- PHASE: SCORING ZONE ---
         elif st.session_state.workflow_step == "Scoring Zone":
             t_tabs = st.tabs(["50-100m", "101-150m", "151-200m"])
             for i, r_label in enumerate(["50-100", "101-150", "151-200"]):
@@ -495,6 +586,7 @@ if st.session_state.active_t:
                         st.session_state.shots_data = load_shots(st.session_state.current_user); st.rerun()
                     
                     if not df_v.empty:
+                        df_v = df_v.copy()
                         df_v['d'] = np.sqrt(df_v['X']**2 + df_v['Y']**2)
                         rb, rp = get_radii(r_label)
                         b = len(df_v[df_v['d'] <= rb])
@@ -514,13 +606,9 @@ if st.session_state.active_t:
             with col2:
                 st.number_input("Total GIR", min_value=0, max_value=18, value=current_stats.get('gir', 0), key=f"g_{cid}", on_change=auto_save_stat, args=("gir", f"g_{cid}", cid))
 
-        # --- PHASE: SHORT GAME ---
         elif st.session_state.workflow_step == "Short Game":
             st.subheader("Short Game (SG)")
-            st.caption("Set your total SG shots first. This denominator applies to all categories below.")
-            
             sg_tot = st.number_input("Total SG Shots (#)", min_value=0, value=current_stats.get('sg_total', 0), key=f"sgt_{cid}", on_change=auto_save_stat, args=("sg_total", f"sgt_{cid}", cid))
-            
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**Successes:**")
@@ -528,7 +616,6 @@ if st.session_state.active_t:
                 sg_3 = st.number_input("< 3ft (Shots inside 3ft)", min_value=0, max_value=sg_tot, value=current_stats.get('sg_inside_3', 0), key=f"sg3_{cid}", on_change=auto_save_stat, args=("sg_inside_3", f"sg3_{cid}", cid))
                 sg_ud = st.number_input("U&D (Up & Downs)", min_value=0, max_value=sg_tot, value=current_stats.get('sg_ud', 0), key=f"sgu_{cid}", on_change=auto_save_stat, args=("sg_ud", f"sgu_{cid}", cid))
                 sgz = st.number_input("SGZ Score (Relative to Par)", value=current_stats.get('sgz_score', 0), key=f"sgz_{cid}", on_change=auto_save_stat, args=("sgz_score", f"sgz_{cid}", cid))
-            
             with col2:
                 st.markdown("**Tournament Sheet Output:**")
                 if sg_tot > 0:
@@ -537,11 +624,8 @@ if st.session_state.active_t:
                     st.write(f"**U&D:** {(sg_ud/sg_tot)*100:.0f}%")
                     st.write(f"**SGZ:** {sgz}({sg_tot})")
 
-        # --- PHASE: PUTTING ---
         elif st.session_state.workflow_step == "Putting":
             st.subheader("18-Hole SG Putting Calculator")
-            
-            # Placeholders for fixed visual metrics above grid
             metric_cols = st.columns(2)
             m_putts = metric_cols[0].empty()
             m_sg = metric_cols[1].empty()
@@ -552,9 +636,7 @@ if st.session_state.active_t:
             else:
                 df_putts = pd.DataFrame({"Hole": [f"Hole {i}" for i in range(1, 19)], "Distance (ft)": [0]*18, "Putts": [0]*18})
 
-            # The Quick-Grid
             edited_df = st.data_editor(df_putts, hide_index=True, use_container_width=True, num_rows="fixed", key=f"grid_{cid}")
-            
             new_grid = edited_df.to_dict('records')
             total_putts = int(edited_df["Putts"].sum())
             total_sg = 0.0
@@ -565,16 +647,11 @@ if st.session_state.active_t:
                 if dist > 0 and putts > 0:
                     total_sg += (get_expected_putts(dist) - putts)
             
-            # Inject calculated metrics back into the top placeholders
             m_putts.metric("Total Putts", total_putts)
             m_sg.metric("Total SG Putting", f"{total_sg:+.2f}")
             
-            # Auto-save grid comparison
             if new_grid != raw_grid:
-                supabase.table("round_stats").update({
-                    "putting_holes": new_grid, "putts_total": total_putts, "sg_putting": round(total_sg, 2)
-                }).eq("id", cid).execute()
-                st.toast("☁️ Grid auto-saved to cloud", icon="✅")
+                supabase.table("round_stats").update({"putting_holes": new_grid, "putts_total": total_putts, "sg_putting": round(total_sg, 2)}).eq("id", cid).execute()
             
             st.divider()
             st.markdown("### Lag Putting")
@@ -582,22 +659,17 @@ if st.session_state.active_t:
             lag_suc = st.number_input("Lags inside putter length", min_value=0, max_value=lag_tot if lag_tot > 0 else 0, value=current_stats.get('lag_success', 0), key=f"ls_{cid}", on_change=auto_save_stat, args=("lag_success", f"ls_{cid}", cid))
             if lag_tot > 0: st.write(f"**Lag:** {(lag_suc/lag_tot)*100:.0f}%")
 
-        # --- PHASE: MENTAL & JUDGEMENT ---
         elif st.session_state.workflow_step == "Mental & Judgement":
             st.subheader("Mental (M), Judgements (J), & Course Management (CM)")
             st.slider("Mental Score (M)", min_value=0, max_value=100, value=current_stats.get('mental_score', 0), key=f"ms_{cid}", on_change=auto_save_stat, args=("mental_score", f"ms_{cid}", cid))
             st.slider("Judgement Score (J)", min_value=0, max_value=100, value=current_stats.get('judgement_score', 0), key=f"js_{cid}", on_change=auto_save_stat, args=("judgement_score", f"js_{cid}", cid))
             st.slider("Course Management Score (CM)", min_value=0, max_value=100, value=current_stats.get('cm_score', 0), key=f"cm_{cid}", on_change=auto_save_stat, args=("cm_score", f"cm_{cid}", cid))
 
-        # --- PHASE: MASTER DASHBOARD ---
         elif st.session_state.workflow_step == "Master Dashboard":
-            st.title(f"Master Dashboard - {st.session_state.active_t}")
-            
             all_tournament_shots = st.session_state.shots_data[st.session_state.shots_data['Tournament'] == st.session_state.active_t]
             all_round_stats = load_all_tournament_stats(st.session_state.current_user, st.session_state.active_t)
             
-            df_master = build_master_dataframe(all_tournament_shots, all_round_stats)
-            
+            df_master = build_master_dataframe(all_tournament_shots, all_round_stats, mode="tournament")
             df_ui = df_master.copy()
             df_ui['Category'] = df_ui.apply(lambda r: f"**{r['Category']}**" if r['Round 1'] == "" else r['Category'], axis=1)
             
@@ -611,17 +683,11 @@ if st.session_state.active_t:
             
             st.table(df_ui.set_index('Category'))
             
-            st.divider()
-            
             pdf_bytes = create_ecga_pdf(st.session_state.active_t, df_master, all_tournament_shots)
-            
             st.download_button(
-                label="📄 Download 2-Page Tour-Grade ECGA Overview",
+                label="📄 Download Tournament 2-Page Report",
                 data=pdf_bytes,
                 file_name=f"{st.session_state.active_t}_ECGA_Report.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
-
-else:
-    st.info("Create or select a tournament in the sidebar to begin.")
