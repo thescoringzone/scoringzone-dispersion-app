@@ -11,8 +11,27 @@ from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
 from supabase import create_client
 
-# --- 1. APP CONFIG & SECRETS ---
+# --- 1. APP CONFIG, SECRETS & CSS ---
 st.set_page_config(page_title="The Score Code", layout="wide")
+
+# CSS Injection for Larger Slider Thumbs
+st.markdown("""
+    <style>
+    /* Increase slider thumb size */
+    div[data-baseweb="slider"] div[role="slider"] {
+        height: 24px !important;
+        width: 24px !important;
+        border-radius: 50% !important;
+        box-shadow: 0 0 4px rgba(0,0,0,0.3) !important;
+    }
+    /* Increase and lift the value label above the thumb */
+    div[data-baseweb="slider"] div[data-testid="stThumbValue"] {
+        font-size: 16px !important;
+        font-weight: bold !important;
+        transform: translateY(-8px) !important; 
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 @st.cache_resource
 def init_connection():
@@ -35,11 +54,8 @@ pga_putts_baseline = {
 }
 
 def get_expected_putts(distance):
-    # Extracts the distances (x) and expected putts (y) into sorted lists
     xp = sorted(list(pga_putts_baseline.keys()))
     fp = [pga_putts_baseline[x] for x in xp]
-    
-    # Uses numpy to linearly interpolate the exact decimal for unlisted distances
     return float(np.interp(distance, xp, fp))
 
 # --- 2. DATA LOADING & AUTO-SAVE CALLBACKS ---
@@ -173,58 +189,39 @@ def format_score_cell(list_s):
     gross_str = f"{avg_gross:.1f}".replace(".0", "")
     to_par_str = f"{avg_to_par:.1f}".replace(".0", "")
     
-    if avg_to_par > 0:
-        return f"{gross_str} (+{to_par_str})"
-    elif avg_to_par == 0:
-        return f"{gross_str} (E)"
-    else:
-        return f"{gross_str} ({to_par_str})"
+    if avg_to_par > 0: return f"{gross_str} (+{to_par_str})"
+    elif avg_to_par == 0: return f"{gross_str} (E)"
+    else: return f"{gross_str} ({to_par_str})"
 
 def calc_metrics(df_s, list_s, logic_type, param):
     num, den, extra = 0, 0, 0
     if logic_type == "driving":
-        df_d = df_s[df_s['Range'] == param]
-        den = len(df_d)
+        df_d = df_s[df_s['Range'] == param]; den = len(df_d)
         if den > 0:
             num = len(df_d[df_d['X'].abs() <= 10])
             extra = len(df_d[df_d['X'].abs() > 20])
-            
     elif logic_type == "approach":
-        df_a = df_s[df_s['Range'] == param]
-        den = len(df_a)
+        df_a = df_s[df_s['Range'] == param]; den = len(df_a)
         if den > 0:
-            df_a = df_a.copy()
-            df_a['d'] = np.sqrt(df_a['X']**2 + df_a['Y']**2)
+            df_a = df_a.copy(); df_a['d'] = np.sqrt(df_a['X']**2 + df_a['Y']**2)
             rb, rp = get_radii(param)
             b_count = len(df_a[df_a['d'] <= rb])
             bog_count = len(df_a[df_a['d'] > rp])
             num = (b_count * -1) + (bog_count * 1)
-            
     elif logic_type == "abs":
         for s in list_s:
             v = s.get(param, 0)
             if v != 0: num += v; den += 1
-            
     elif logic_type == "sg_perc":
-        for s in list_s:
-            num += s.get(param, 0)
-            den += s.get('sg_total', 0)
-            
+        for s in list_s: num += s.get(param, 0); den += s.get('sg_total', 0)
     elif logic_type == "sgz":
-        for s in list_s:
-            num += s.get('sgz_score', 0)
-            den += s.get('sg_total', 0)
-            
+        for s in list_s: num += s.get('sgz_score', 0); den += s.get('sg_total', 0)
     elif logic_type == "lag":
-        for s in list_s:
-            num += s.get('lag_success', 0)
-            den += s.get('lag_total', 0)
-            
+        for s in list_s: num += s.get('lag_success', 0); den += s.get('lag_total', 0)
     elif logic_type == "sg_putt":
         for s in list_s:
             v = s.get('sg_putting', 0.0)
             if v != 0: num += v; den += 1
-            
     return num, den, extra
 
 def format_cell(logic_type, num, den, extra):
@@ -244,11 +241,7 @@ def format_cell(logic_type, num, den, extra):
     return "-"
 
 def build_master_dataframe(df_shots, list_stats, mode="tournament"):
-    if mode == "tournament":
-        headers = ["Round 1", "Round 2", "Round 3", "Round 4"]
-    else:
-        headers = [] 
-
+    headers = ["Round 1", "Round 2", "Round 3", "Round 4"] if mode == "tournament" else []
     data = []
     
     row_score = {"Category": "Score (To Par)"}
@@ -266,9 +259,7 @@ def build_master_dataframe(df_shots, list_stats, mode="tournament"):
     def add_row(cat, logic_type, param=""):
         row = {"Category": cat}
         for h in headers:
-            if h.strip() == "":
-                row[h] = "-"
-                continue
+            if h.strip() == "": row[h] = "-"; continue
             df_s = df_shots[df_shots['Round'] == h]
             list_s = [s for s in list_stats if s['round_num'] == h]
             n, d, e = calc_metrics(df_s, list_s, logic_type, param)
@@ -279,32 +270,17 @@ def build_master_dataframe(df_shots, list_stats, mode="tournament"):
         data.append(row)
 
     add_section_header("LONG GAME")
-    add_row("OTT: Driver", "driving", "OTT: Driver")
-    add_row("OTT: Others", "driving", "OTT: Others")
-    
+    add_row("OTT: Driver", "driving", "OTT: Driver"); add_row("OTT: Others", "driving", "OTT: Others")
     add_section_header("SCORING ZONE")
-    add_row("151-200m", "approach", "151-200")
-    add_row("101-150m", "approach", "101-150")
-    add_row("50-100m", "approach", "50-100")
-    add_row("GIR / 5", "abs", "gir_less_5")
-    add_row("GIR", "abs", "gir")
-    
+    add_row("151-200m", "approach", "151-200"); add_row("101-150m", "approach", "101-150"); add_row("50-100m", "approach", "50-100")
+    add_row("GIR / 5", "abs", "gir_less_5"); add_row("GIR", "abs", "gir")
     add_section_header("SHORT GAME")
-    add_row("< 6", "sg_perc", "sg_inside_6")
-    add_row("< 3", "sg_perc", "sg_inside_3")
-    add_row("U&D", "sg_perc", "sg_ud")
-    add_row("SGZ", "sgz")
-    
+    add_row("< 6", "sg_perc", "sg_inside_6"); add_row("< 3", "sg_perc", "sg_inside_3")
+    add_row("U&D", "sg_perc", "sg_ud"); add_row("SGZ", "sgz")
     add_section_header("PUTTING")
-    add_row("Putts (#)", "abs", "putts_total") 
-    add_row("SG Putting", "sg_putt")
-    add_row("Lag", "lag")
-    
+    add_row("Putts (#)", "abs", "putts_total"); add_row("SG Putting", "sg_putt"); add_row("Lag", "lag")
     add_section_header("MENTAL & JUDGEMENTS")
-    add_row("M", "abs", "mental_score")
-    add_row("J", "abs", "judgement_score")
-    add_row("CM", "abs", "cm_score")
-
+    add_row("M", "abs", "mental_score"); add_row("J", "abs", "judgement_score"); add_row("CM", "abs", "cm_score")
     return pd.DataFrame(data)
 
 # --- 5. ECGA 2-PAGE PDF GENERATOR ---
@@ -313,33 +289,22 @@ def create_ecga_pdf(title, df_master, df_shots):
     pdf.set_auto_page_break(auto=False)
     
     # PAGE 1: MASTER TABLE
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
+    pdf.add_page(); pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, txt=f"The Score Code Overview: {title}", ln=True, align='C')
     pdf.ln(5)
     
     headers = list(df_master.columns)
-    
-    if len(headers) == 2:
-        col_w = [138, 138] 
-    else:
-        col_w = [40, 47, 47, 47, 47, 47]
-        
+    col_w = [138, 138] if len(headers) == 2 else [40, 47, 47, 47, 47, 47]
     row_h = 7 
     
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_fill_color(200, 220, 255)
-    for i, h in enumerate(headers):
-        pdf.cell(col_w[i], row_h, txt=h.strip(), border=1, align='C', fill=True)
-    pdf.ln()
-    
-    pdf.set_font("Arial", '', 10)
+    pdf.set_font("Arial", 'B', 10); pdf.set_fill_color(200, 220, 255)
+    for i, h in enumerate(headers): pdf.cell(col_w[i], row_h, txt=h.strip(), border=1, align='C', fill=True)
+    pdf.ln(); pdf.set_font("Arial", '', 10)
     
     for index, row in df_master.iterrows():
         cat = row['Category']
         if row["AV / TOTAL"] == "":
-            pdf.set_fill_color(240, 240, 240)
-            pdf.set_font("Arial", 'B', 10)
+            pdf.set_fill_color(240, 240, 240); pdf.set_font("Arial", 'B', 10)
             pdf.cell(sum(col_w), row_h, txt=cat, border=1, fill=True, ln=True, align='L')
             pdf.set_font("Arial", '', 10) 
         else:
@@ -349,90 +314,54 @@ def create_ecga_pdf(title, df_master, df_shots):
             pdf.ln()
 
     # PAGE 2: DISPERSION CHARTS
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
+    pdf.add_page(); pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, txt=f"Dispersion Analytics: {title}", ln=True, align='C')
     pdf.ln(2)
 
-    y_start = 22
-    x_offsets = [10, 105, 200]
-    ranges_sz = ["50-100", "101-150", "151-200"]
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, txt="Scoring Zone (Approach)", ln=True, align='L')
+    y_start = 22; x_offsets = [10, 105, 200]; ranges_sz = ["50-100", "101-150", "151-200"]
+    pdf.set_font("Arial", 'B', 12); pdf.cell(0, 8, txt="Scoring Zone (Approach)", ln=True, align='L')
     pdf.set_font("Arial", '', 9)
 
     for i, r in enumerate(ranges_sz):
-        sub = df_shots[df_shots['Range'] == r].copy()
-        tot = len(sub)
-        stats_txt1 = f"Range: {r}m | Shots: {tot}"
-        stats_txt2 = "No shots recorded."
-        
+        sub = df_shots[df_shots['Range'] == r].copy(); tot = len(sub)
+        stats_txt1 = f"Range: {r}m | Shots: {tot}"; stats_txt2 = "No shots recorded."
         if tot > 0:
-            sub['d'] = np.sqrt(sub['X']**2 + sub['Y']**2)
-            rb, rp = get_radii(r)
-            b = len(sub[sub['d'] <= rb])
-            p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)])
-            bog = tot - (b + p)
-            to_par = (b * -1) + (bog * 1)
-            sign = "+" if to_par > 0 else ""
-            
+            sub['d'] = np.sqrt(sub['X']**2 + sub['Y']**2); rb, rp = get_radii(r)
+            b = len(sub[sub['d'] <= rb]); p = len(sub[(sub['d'] > rb) & (sub['d'] <= rp)]); bog = tot - (b + p)
+            to_par = (b * -1) + (bog * 1); sign = "+" if to_par > 0 else ""
             misses = sub[sub['d'] > rb]
-            sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)])
-            ll = len(misses[(misses['X'] < 0) & (misses['Y'] > 0)])
-            sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)])
-            lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
-            
+            sl = len(misses[(misses['X'] < 0) & (misses['Y'] <= 0)]); ll = len(misses[(misses['X'] < 0) & (misses['Y'] > 0)])
+            sr = len(misses[(misses['X'] >= 0) & (misses['Y'] <= 0)]); lr = len(misses[(misses['X'] >= 0) & (misses['Y'] > 0)])
             stats_txt1 = f"Range: {r}m | Shots: {tot} | To Par: {sign}{to_par}"
             stats_txt2 = f"SL: {(sl/tot)*100:.0f}% LL: {(ll/tot)*100:.0f}% SR: {(sr/tot)*100:.0f}% LR: {(lr/tot)*100:.0f}%"
 
-        pdf.set_xy(x_offsets[i], y_start + 8)
-        pdf.cell(85, 4, txt=stats_txt1, align='C')
-        pdf.set_xy(x_offsets[i], y_start + 12)
-        pdf.cell(85, 4, txt=stats_txt2, align='C')
-        
-        img = create_target_image(sub, r)
-        temp_fn = f"temp_app_{i}.png"
-        img.save(temp_fn)
+        pdf.set_xy(x_offsets[i], y_start + 8); pdf.cell(85, 4, txt=stats_txt1, align='C')
+        pdf.set_xy(x_offsets[i], y_start + 12); pdf.cell(85, 4, txt=stats_txt2, align='C')
+        img = create_target_image(sub, r); temp_fn = f"temp_app_{i}.png"; img.save(temp_fn)
         pdf.image(temp_fn, x=x_offsets[i]+12, y=y_start+18, w=60)
         if os.path.exists(temp_fn): os.remove(temp_fn)
 
-    y_start = 110
-    x_offsets_tee = [25, 165]
-    ranges_tee = ["OTT: Driver", "OTT: Others"]
-    pdf.set_xy(10, y_start)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, txt="Long Game (Off the Tee)", ln=True, align='L')
+    y_start = 110; x_offsets_tee = [25, 165]; ranges_tee = ["OTT: Driver", "OTT: Others"]
+    pdf.set_xy(10, y_start); pdf.set_font("Arial", 'B', 12); pdf.cell(0, 8, txt="Long Game (Off the Tee)", ln=True, align='L')
     pdf.set_font("Arial", '', 9)
 
     for i, r in enumerate(ranges_tee):
-        sub = df_shots[df_shots['Range'] == r].copy()
-        tot = len(sub)
-        stats_txt1 = f"{r} | Shots: {tot}"
-        stats_txt2 = "No shots recorded."
-        
+        sub = df_shots[df_shots['Range'] == r].copy(); tot = len(sub)
+        stats_txt1 = f"{r} | Shots: {tot}"; stats_txt2 = "No shots recorded."
         if tot > 0:
-            sub['dx'] = sub['X'].abs()
-            in_10 = len(sub[sub['dx'] <= 10])
-            in_20 = len(sub[(sub['dx'] > 10) & (sub['dx'] <= 20)])
-            out_20 = len(sub[sub['dx'] > 20])
-            avg_dist = sub['Y'].mean()
-            
+            sub['dx'] = sub['X'].abs(); in_10 = len(sub[sub['dx'] <= 10]); in_20 = len(sub[(sub['dx'] > 10) & (sub['dx'] <= 20)])
+            out_20 = len(sub[sub['dx'] > 20]); avg_dist = sub['Y'].mean()
             stats_txt1 = f"{r} | Shots: {tot} | Avg Dist: {avg_dist:.1f}m"
             stats_txt2 = f"<10m: {(in_10/tot)*100:.0f}% | 10-20m: {(in_20/tot)*100:.0f}% | 20m+: {(out_20/tot)*100:.0f}%"
 
-        pdf.set_xy(x_offsets_tee[i], y_start + 8)
-        pdf.cell(100, 4, txt=stats_txt1, align='C')
-        pdf.set_xy(x_offsets_tee[i], y_start + 12)
-        pdf.cell(100, 4, txt=stats_txt2, align='C')
-        
-        img = create_tee_image(sub, r)
-        temp_fn = f"temp_tee_{i}.png"
-        img.save(temp_fn)
+        pdf.set_xy(x_offsets_tee[i], y_start + 8); pdf.cell(100, 4, txt=stats_txt1, align='C')
+        pdf.set_xy(x_offsets_tee[i], y_start + 12); pdf.cell(100, 4, txt=stats_txt2, align='C')
+        img = create_tee_image(sub, r); temp_fn = f"temp_tee_{i}.png"; img.save(temp_fn)
         pdf.image(temp_fn, x=x_offsets_tee[i]+10, y=y_start+18, w=80)
         if os.path.exists(temp_fn): os.remove(temp_fn)
-
     return bytes(pdf.output())
-# --- 6. GLOBAL STATE LOGIC ---
+    
+    # --- 6. GLOBAL STATE LOGIC ---
 if 'page' not in st.session_state: st.session_state.page = "Login"
 if 'current_user' not in st.session_state: st.session_state.current_user = None
 
@@ -639,7 +568,6 @@ else:
         if st.session_state.workflow_step == "Score & Driving":
             st.subheader("Round Score")
             col_s1, col_s2 = st.columns(2)
-            
             col_s1.number_input("Gross Score (e.g. 70)", min_value=0, max_value=150, value=current_stats.get('gross_score',0), key=f"gs_{cid}", on_change=auto_save_stat, args=("gross_score", f"gs_{cid}", cid))
             col_s2.number_input("To Par (e.g. -2, E=0, +3)", min_value=-30, max_value=30, value=current_stats.get('to_par',0), key=f"tp_{cid}", on_change=auto_save_stat, args=("to_par", f"tp_{cid}", cid))
             
@@ -733,62 +661,74 @@ else:
                     st.write(f"**U&D:** {(current_stats.get('sg_ud',0)/sg_tot)*100:.0f}%")
                     st.write(f"**SGZ:** {current_stats.get('sgz_score',0)}({sg_tot})")
 
+        # --- REBUILT PUTTING INTERFACE ---
         elif st.session_state.workflow_step == "Putting":
-            st.subheader("18-Hole SG Putting Calculator")
+            st.subheader("Strokes Gained Putting")
             
-            metric_cols = st.columns(2)
-            m_putts = metric_cols[0].empty()
-            m_sg = metric_cols[1].empty()
+            # The Selection Toggle
+            putt_mode = st.radio("Input Method:", ["Hole-by-Hole Calculator", "Manual Tour Data Entry"], horizontal=True)
             
-            raw_grid = current_stats.get('putting_holes')
-            if not raw_grid or len(raw_grid) != 18:
-                raw_grid = [{"Hole": f"Hole {i}", "Distance (ft)": 0, "Putts": 0} for i in range(1, 19)]
-            
-            new_grid = []
-            total_putts = 0
-            total_sg = 0.0
-            
-            st.caption("Slide to select distance, tap to select putts (0 = Not Played).")
-            
-            with st.expander("⛳ Front 9", expanded=True):
-                c_header1, c_header2 = st.columns([3, 2])
-                c_header1.markdown("**Distance (ft)**")
-                c_header2.markdown("**Putts**")
+            if putt_mode == "Manual Tour Data Entry":
+                st.info("Input your official Strokes Gained and Total Putts directly from your Tour Data provider.")
+                col_m1, col_m2 = st.columns(2)
+                col_m1.number_input("Total Putts", min_value=0, max_value=100, value=int(current_stats.get('putts_total', 0)), key=f"m_pt_{cid}", on_change=auto_save_stat, args=("putts_total", f"m_pt_{cid}", cid))
+                col_m2.number_input("Total SG Putting", value=float(current_stats.get('sg_putting', 0.0)), step=0.1, key=f"m_sg_{cid}", on_change=auto_save_stat, args=("sg_putting", f"m_sg_{cid}", cid))
                 
-                for i in range(9):
-                    c1, c2 = st.columns([3, 2])
-                    dist = c1.slider(f"Hole {i+1} Dist", 0, 100, int(raw_grid[i]["Distance (ft)"]), key=f"dist_{cid}_{i}", label_visibility="collapsed")
-                    putts = c2.radio(f"Hole {i+1} Putts", [0, 1, 2, 3, 4], index=int(raw_grid[i]["Putts"]), horizontal=True, key=f"putts_{cid}_{i}", label_visibility="collapsed")
-                    new_grid.append({"Hole": f"Hole {i+1}", "Distance (ft)": dist, "Putts": putts})
-                    
-            with st.expander("⛳ Back 9", expanded=False):
-                c_header1, c_header2 = st.columns([3, 2])
-                c_header1.markdown("**Distance (ft)**")
-                c_header2.markdown("**Putts**")
+            else:
+                metric_cols = st.columns(2)
+                m_putts = metric_cols[0].empty()
+                m_sg = metric_cols[1].empty()
                 
-                for i in range(9, 18):
-                    c1, c2 = st.columns([3, 2])
-                    dist = c1.slider(f"Hole {i+1} Dist", 0, 100, int(raw_grid[i]["Distance (ft)"]), key=f"dist_{cid}_{i}", label_visibility="collapsed")
-                    putts = c2.radio(f"Hole {i+1} Putts", [0, 1, 2, 3, 4], index=int(raw_grid[i]["Putts"]), horizontal=True, key=f"putts_{cid}_{i}", label_visibility="collapsed")
-                    new_grid.append({"Hole": f"Hole {i+1}", "Distance (ft)": dist, "Putts": putts})
-            
-            for row in new_grid:
-                dist = row["Distance (ft)"]
-                putts = row["Putts"]
-                if putts > 0:
-                    total_putts += putts
-                if dist > 0 and putts > 0:
-                    total_sg += (get_expected_putts(dist) - putts)
-                    
-            m_putts.metric("Total Putts", total_putts)
-            m_sg.metric("Total SG Putting", f"{total_sg:+.2f}")
-            
-            if new_grid != raw_grid:
-                supabase.table("round_stats").update({
-                    "putting_holes": new_grid, 
-                    "putts_total": total_putts, 
-                    "sg_putting": round(total_sg, 2)
-                }).eq("id", cid).execute()
+                raw_grid = current_stats.get('putting_holes')
+                if not raw_grid or len(raw_grid) != 18:
+                    raw_grid = [{"Hole": f"Hole {i}", "Distance (ft)": 0, "Putts": 0} for i in range(1, 19)]
+                
+                new_grid = []
+                total_putts = 0
+                total_sg = 0.0
+                
+                st.caption("Slide to select distance, tap to select putts (0 = Not Played).")
+                
+                with st.expander("⛳ Front 9", expanded=True):
+                    for i in range(9):
+                        # Clean container wrapper to visually separate the sliders
+                        with st.container(border=True):
+                            st.markdown(f"**Hole {i+1}**")
+                            c1, c2 = st.columns([3, 2])
+                            c1.caption("Distance (ft)")
+                            dist = c1.slider(f"Hole {i+1} Dist", 0, 100, int(raw_grid[i]["Distance (ft)"]), key=f"dist_{cid}_{i}", label_visibility="collapsed")
+                            c2.caption("Putts")
+                            putts = c2.radio(f"Hole {i+1} Putts", [0, 1, 2, 3, 4], index=int(raw_grid[i]["Putts"]), horizontal=True, key=f"putts_{cid}_{i}", label_visibility="collapsed")
+                            new_grid.append({"Hole": f"Hole {i+1}", "Distance (ft)": dist, "Putts": putts})
+                        
+                with st.expander("⛳ Back 9", expanded=False):
+                    for i in range(9, 18):
+                        with st.container(border=True):
+                            st.markdown(f"**Hole {i+1}**")
+                            c1, c2 = st.columns([3, 2])
+                            c1.caption("Distance (ft)")
+                            dist = c1.slider(f"Hole {i+1} Dist", 0, 100, int(raw_grid[i]["Distance (ft)"]), key=f"dist_{cid}_{i}", label_visibility="collapsed")
+                            c2.caption("Putts")
+                            putts = c2.radio(f"Hole {i+1} Putts", [0, 1, 2, 3, 4], index=int(raw_grid[i]["Putts"]), horizontal=True, key=f"putts_{cid}_{i}", label_visibility="collapsed")
+                            new_grid.append({"Hole": f"Hole {i+1}", "Distance (ft)": dist, "Putts": putts})
+                
+                for row in new_grid:
+                    dist = row["Distance (ft)"]
+                    putts = row["Putts"]
+                    if putts > 0:
+                        total_putts += putts
+                    if dist > 0 and putts > 0:
+                        total_sg += (get_expected_putts(dist) - putts)
+                        
+                m_putts.metric("Total Putts", total_putts)
+                m_sg.metric("Total SG Putting", f"{total_sg:+.2f}")
+                
+                if new_grid != raw_grid:
+                    supabase.table("round_stats").update({
+                        "putting_holes": new_grid, 
+                        "putts_total": total_putts, 
+                        "sg_putting": round(total_sg, 2)
+                    }).eq("id", cid).execute()
             
             st.divider()
             st.markdown("### Lag Putting")
@@ -801,7 +741,12 @@ else:
             st.subheader("Mental (M), Judgements (J), & Course Management (CM)")
             st.slider("Mental Score (M)", min_value=0, max_value=100, value=current_stats.get('mental_score', 0), key=f"ms_{cid}", on_change=auto_save_stat, args=("mental_score", f"ms_{cid}", cid))
             st.slider("Judgement Score (J)", min_value=0, max_value=100, value=current_stats.get('judgement_score', 0), key=f"js_{cid}", on_change=auto_save_stat, args=("judgement_score", f"js_{cid}", cid))
-            st.slider("Course Management Score (CM)", min_value=0, max_value=100, value=current_stats.get('cm_score', 0), key=f"cm_{cid}", on_change=auto_save_stat, args=("cm_score", f"cm_{cid}", cid))
+            
+            # Formatted CM Score to 0.00-10.00 range. Built-in logic protects old legacy data (e.g. 85 becomes 8.50).
+            raw_cm = float(current_stats.get('cm_score', 0.0))
+            cm_val = min(10.0, raw_cm / 10.0 if raw_cm > 10.0 else raw_cm)
+            
+            st.slider("Course Management Score (CM)", min_value=0.00, max_value=10.00, value=float(cm_val), step=0.01, format="%.2f", key=f"cm_{cid}", on_change=auto_save_stat, args=("cm_score", f"cm_{cid}", cid))
 
         elif st.session_state.workflow_step == "Master Dashboard":
             all_ts = st.session_state.shots_data[st.session_state.shots_data['Tournament'] == st.session_state.active_t]
