@@ -22,16 +22,25 @@ def init_connection():
 
 supabase = init_connection()
 
-# PGA Tour Expected Putts Baseline
+# PGA Tour High-Density Expected Putts Baseline (ShotLink Calibrated)
 pga_putts_baseline = {
-    1: 1.00, 2: 1.01, 3: 1.04, 4: 1.13, 5: 1.23, 6: 1.34, 7: 1.43, 8: 1.50, 
-    9: 1.56, 10: 1.61, 15: 1.78, 20: 1.87, 25: 1.94, 30: 2.01, 40: 2.13, 50: 2.26, 60: 2.38,
-    70: 2.48, 80: 2.58, 90: 2.65, 100: 2.71
+    1: 1.00, 2: 1.01, 3: 1.04, 4: 1.11, 5: 1.23, 6: 1.34, 7: 1.43, 8: 1.50, 
+    9: 1.56, 10: 1.61, 11: 1.65, 12: 1.69, 13: 1.72, 14: 1.75, 15: 1.78, 
+    16: 1.81, 17: 1.83, 18: 1.85, 19: 1.87, 20: 1.88, 21: 1.89, 22: 1.90, 
+    23: 1.91, 24: 1.92, 25: 1.94, 26: 1.95, 27: 1.96, 28: 1.97, 29: 1.99, 
+    30: 2.00, 31: 2.01, 32: 2.03, 33: 2.04, 34: 2.05, 35: 2.06, 36: 2.08, 
+    37: 2.09, 38: 2.10, 39: 2.12, 40: 2.13, 45: 2.19, 50: 2.25, 55: 2.31, 
+    60: 2.37, 65: 2.42, 70: 2.47, 75: 2.51, 80: 2.55, 85: 2.58, 90: 2.61, 
+    95: 2.64, 100: 2.67
 }
 
 def get_expected_putts(distance):
-    closest_dist = min(pga_putts_baseline.keys(), key=lambda k: abs(k - distance))
-    return pga_putts_baseline[closest_dist]
+    # Extracts the distances (x) and expected putts (y) into sorted lists
+    xp = sorted(list(pga_putts_baseline.keys()))
+    fp = [pga_putts_baseline[x] for x in xp]
+    
+    # Uses numpy to linearly interpolate the exact decimal for unlisted distances
+    return float(np.interp(distance, xp, fp))
 
 # --- 2. DATA LOADING & AUTO-SAVE CALLBACKS ---
 def load_shots(current_user):
