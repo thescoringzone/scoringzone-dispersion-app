@@ -361,7 +361,7 @@ def create_ecga_pdf(title, df_master, df_shots):
         if os.path.exists(temp_fn): os.remove(temp_fn)
     return bytes(pdf.output())
     
-    # --- 6. GLOBAL STATE LOGIC ---
+  # --- 6. GLOBAL STATE LOGIC ---
 if 'page' not in st.session_state: st.session_state.page = "Login"
 if 'current_user' not in st.session_state: st.session_state.current_user = None
 
@@ -421,13 +421,21 @@ else:
             new_t = st.text_input("Tournament Name:")
             if st.button("Create & Enter Hub"):
                 if new_t:
+                    # FIX: Force a database entry immediately so the tournament is permanently anchored
+                    load_round_stats(st.session_state.current_user, new_t, "Round 1")
                     st.session_state.active_t = new_t
                     st.session_state.active_r = "Round 1"
                     st.session_state.page = "Tournament Hub"
                     st.rerun()
         
         st.divider()
-        all_t = st.session_state.shots_data['Tournament'].unique().tolist() if not st.session_state.shots_data.empty else []
+        
+        # FIX: Pull unique tournaments from BOTH shots and round_stats so empty tournaments still show
+        raw_stats = load_all_stats(st.session_state.current_user)
+        t_from_shots = st.session_state.shots_data['Tournament'].unique().tolist() if not st.session_state.shots_data.empty else []
+        t_from_stats = [s['tournament'] for s in raw_stats] if raw_stats else []
+        all_t = sorted(list(set(t_from_shots + t_from_stats)))
+        
         if all_t:
             cols = st.columns(4)
             for i, t in enumerate(all_t):
@@ -461,6 +469,16 @@ else:
         if st.button("📊 View Tournament Dashboard", use_container_width=True):
             st.session_state.workflow_step = "Master Dashboard"
             st.session_state.page = "Data Entry"
+            st.rerun()
+            
+        # FIX: Added Manual Delete button for anchored tournaments
+        st.divider()
+        if st.button("🗑️ Delete Entire Tournament", type="primary"):
+            supabase.table("shots").delete().eq("User", st.session_state.current_user).eq("Tournament", st.session_state.active_t).execute()
+            supabase.table("round_stats").delete().eq("user_name", st.session_state.current_user).eq("tournament", st.session_state.active_t).execute()
+            st.session_state.shots_data = load_shots(st.session_state.current_user)
+            st.session_state.active_t = None
+            st.session_state.page = "Season Hub"
             st.rerun()
 
     # --- PAGE: SEASON MASTER DASHBOARD ---
@@ -568,6 +586,7 @@ else:
         if st.session_state.workflow_step == "Score & Driving":
             st.subheader("Round Score")
             col_s1, col_s2 = st.columns(2)
+            
             col_s1.number_input("Gross Score (e.g. 70)", min_value=0, max_value=150, value=current_stats.get('gross_score',0), key=f"gs_{cid}", on_change=auto_save_stat, args=("gross_score", f"gs_{cid}", cid))
             col_s2.number_input("To Par (e.g. -2, E=0, +3)", min_value=-30, max_value=30, value=current_stats.get('to_par',0), key=f"tp_{cid}", on_change=auto_save_stat, args=("to_par", f"tp_{cid}", cid))
             
@@ -661,11 +680,9 @@ else:
                     st.write(f"**U&D:** {(current_stats.get('sg_ud',0)/sg_tot)*100:.0f}%")
                     st.write(f"**SGZ:** {current_stats.get('sgz_score',0)}({sg_tot})")
 
-        # --- REBUILT PUTTING INTERFACE ---
         elif st.session_state.workflow_step == "Putting":
             st.subheader("Strokes Gained Putting")
             
-            # The Selection Toggle
             putt_mode = st.radio("Input Method:", ["Hole-by-Hole Calculator", "Manual Tour Data Entry"], horizontal=True)
             
             if putt_mode == "Manual Tour Data Entry":
@@ -691,7 +708,6 @@ else:
                 
                 with st.expander("⛳ Front 9", expanded=True):
                     for i in range(9):
-                        # Clean container wrapper to visually separate the sliders
                         with st.container(border=True):
                             st.markdown(f"**Hole {i+1}**")
                             c1, c2 = st.columns([3, 2])
@@ -742,7 +758,6 @@ else:
             st.slider("Mental Score (M)", min_value=0, max_value=100, value=current_stats.get('mental_score', 0), key=f"ms_{cid}", on_change=auto_save_stat, args=("mental_score", f"ms_{cid}", cid))
             st.slider("Judgement Score (J)", min_value=0, max_value=100, value=current_stats.get('judgement_score', 0), key=f"js_{cid}", on_change=auto_save_stat, args=("judgement_score", f"js_{cid}", cid))
             
-            # Formatted CM Score to 0.00-10.00 range. Built-in logic protects old legacy data (e.g. 85 becomes 8.50).
             raw_cm = float(current_stats.get('cm_score', 0.0))
             cm_val = min(10.0, raw_cm / 10.0 if raw_cm > 10.0 else raw_cm)
             
