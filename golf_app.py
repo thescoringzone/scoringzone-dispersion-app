@@ -55,6 +55,11 @@ def load_all_stats(current_user):
     response = supabase.table("round_stats").select("*").eq("user_name", current_user).execute()
     return response.data if response.data else []
 
+# Added missing tournament-specific loader back in
+def load_all_tournament_stats(current_user, tournament):
+    response = supabase.table("round_stats").select("*").eq("user_name", current_user).eq("tournament", tournament).execute()
+    return response.data if response.data else []
+
 def auto_save_stat(db_column, widget_key, record_id):
     val = st.session_state[widget_key]
     supabase.table("round_stats").update({db_column: val}).eq("id", record_id).execute()
@@ -200,7 +205,7 @@ def build_master_dataframe(df_shots, list_stats, mode="tournament"):
         headers = ["Round 1", "Round 2", "Round 3", "Round 4"]
     else:
         all_ts = list(dict.fromkeys([s['tournament'] for s in list_stats] + df_shots['Tournament'].unique().tolist()))
-        headers = all_ts[-4:] # Last 4 tournaments
+        headers = all_ts[-4:] 
         pad = [" ", "  ", "   ", "    "]
         while len(headers) < 4: headers.append(pad[len(headers)])
 
@@ -407,7 +412,6 @@ if st.session_state.page == "Login" or not st.session_state.current_user:
 
 # --- 8. ROUTING: SECURE PLATFORM ---
 else:
-    # GLOBAL SIDEBAR NAVIGATION
     st.sidebar.title("👤 Player Profile")
     st.sidebar.write(f"**{st.session_state.current_user}**")
     st.sidebar.button("Log Out", on_click=lambda: st.session_state.update(page="Login", current_user=None))
@@ -529,7 +533,7 @@ else:
         else:
             st.info("No data available yet for the season.")
 
-    # --- PAGE: DATA ENTRY (The 6 Tabs) ---
+    # --- PAGE: DATA ENTRY ---
     elif st.session_state.page == "Data Entry":
         st.title(f"{st.session_state.active_t} - {st.session_state.active_r if st.session_state.workflow_step != 'Master Dashboard' else 'Tournament Dashboard'}")
         
