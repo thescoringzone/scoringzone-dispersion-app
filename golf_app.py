@@ -14,17 +14,30 @@ from supabase import create_client
 # --- 1. APP CONFIG, SECRETS & CSS ---
 st.set_page_config(page_title="The Score Code", layout="wide")
 
-# CSS Injection for Larger Slider Thumbs
+# CSS Injection for Premium Fonts & Larger Slider Thumbs
 st.markdown("""
     <style>
-    /* Increase slider thumb size */
+    /* 1. Import Premium Fonts from Google */
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;600&display=swap');
+
+    /* 2. Apply crisp Montserrat to all general text, tables, and buttons */
+    html, body, [class*="css"], [class*="st-"], .stMarkdown, .stText {
+        font-family: 'Montserrat', sans-serif !important;
+    }
+    
+    /* 3. Apply sophisticated Playfair Display to all Headers and Titles */
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Playfair Display', serif !important;
+        font-weight: 600 !important;
+    }
+
+    /* 4. Keep our larger slider thumb styling */
     div[data-baseweb="slider"] div[role="slider"] {
         height: 24px !important;
         width: 24px !important;
         border-radius: 50% !important;
         box-shadow: 0 0 4px rgba(0,0,0,0.3) !important;
     }
-    /* Increase and lift the value label above the thumb */
     div[data-baseweb="slider"] div[data-testid="stThumbValue"] {
         font-size: 16px !important;
         font-weight: bold !important;
