@@ -421,7 +421,7 @@ else:
             new_t = st.text_input("Tournament Name:")
             if st.button("Create & Enter Hub"):
                 if new_t:
-                    # FIX: Force a database entry immediately so the tournament is permanently anchored
+                    # Force a database entry immediately so the tournament is permanently anchored
                     load_round_stats(st.session_state.current_user, new_t, "Round 1")
                     st.session_state.active_t = new_t
                     st.session_state.active_r = "Round 1"
@@ -430,7 +430,7 @@ else:
         
         st.divider()
         
-        # FIX: Pull unique tournaments from BOTH shots and round_stats so empty tournaments still show
+        # Pull unique tournaments from BOTH shots and round_stats so empty tournaments still show
         raw_stats = load_all_stats(st.session_state.current_user)
         t_from_shots = st.session_state.shots_data['Tournament'].unique().tolist() if not st.session_state.shots_data.empty else []
         t_from_stats = [s['tournament'] for s in raw_stats] if raw_stats else []
@@ -471,15 +471,17 @@ else:
             st.session_state.page = "Data Entry"
             st.rerun()
             
-        # FIX: Added Manual Delete button for anchored tournaments
+        # FIX: Added a safety double-check for deleting tournaments
         st.divider()
-        if st.button("🗑️ Delete Entire Tournament", type="primary"):
-            supabase.table("shots").delete().eq("User", st.session_state.current_user).eq("Tournament", st.session_state.active_t).execute()
-            supabase.table("round_stats").delete().eq("user_name", st.session_state.current_user).eq("tournament", st.session_state.active_t).execute()
-            st.session_state.shots_data = load_shots(st.session_state.current_user)
-            st.session_state.active_t = None
-            st.session_state.page = "Season Hub"
-            st.rerun()
+        with st.expander("🗑️ Delete Entire Tournament"):
+            st.warning(f"⚠️ Are you sure you want to permanently delete all data for **{st.session_state.active_t}**? This cannot be undone.")
+            if st.button("Yes, Delete Tournament", type="primary", use_container_width=True):
+                supabase.table("shots").delete().eq("User", st.session_state.current_user).eq("Tournament", st.session_state.active_t).execute()
+                supabase.table("round_stats").delete().eq("user_name", st.session_state.current_user).eq("tournament", st.session_state.active_t).execute()
+                st.session_state.shots_data = load_shots(st.session_state.current_user)
+                st.session_state.active_t = None
+                st.session_state.page = "Season Hub"
+                st.rerun()
 
     # --- PAGE: SEASON MASTER DASHBOARD ---
     elif st.session_state.page == "Season Master":
