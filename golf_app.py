@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
 import os
+import json
 from fpdf import FPDF
 from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
@@ -55,7 +56,6 @@ def load_all_stats(current_user):
     response = supabase.table("round_stats").select("*").eq("user_name", current_user).execute()
     return response.data if response.data else []
 
-# Added missing tournament-specific loader back in
 def load_all_tournament_stats(current_user, tournament):
     response = supabase.table("round_stats").select("*").eq("user_name", current_user).eq("tournament", tournament).execute()
     return response.data if response.data else []
@@ -204,10 +204,7 @@ def build_master_dataframe(df_shots, list_stats, mode="tournament"):
     if mode == "tournament":
         headers = ["Round 1", "Round 2", "Round 3", "Round 4"]
     else:
-        all_ts = list(dict.fromkeys([s['tournament'] for s in list_stats] + df_shots['Tournament'].unique().tolist()))
-        headers = all_ts[-4:] 
-        pad = [" ", "  ", "   ", "    "]
-        while len(headers) < 4: headers.append(pad[len(headers)])
+        headers = [] # Season mode only shows AV/TOTAL
 
     data = []
     def add_section_header(title):
@@ -223,13 +220,8 @@ def build_master_dataframe(df_shots, list_stats, mode="tournament"):
             if h.strip() == "":
                 row[h] = "-"
                 continue
-            if mode == "tournament":
-                df_s = df_shots[df_shots['Round'] == h]
-                list_s = [s for s in list_stats if s['round_num'] == h]
-            else:
-                df_s = df_shots[df_shots['Tournament'] == h]
-                list_s = [s for s in list_stats if s['tournament'] == h]
-            
+            df_s = df_shots[df_shots['Round'] == h]
+            list_s = [s for s in list_stats if s['round_num'] == h]
             n, d, e = calc_metrics(df_s, list_s, logic_type, param)
             row[h] = format_cell(logic_type, n, d, e)
             
@@ -277,9 +269,15 @@ def create_ecga_pdf(title, df_master, df_shots):
     pdf.cell(0, 10, txt=f"The Score Code Overview: {title}", ln=True, align='C')
     pdf.ln(5)
     
-    col_w = [40, 42, 42, 42, 42, 42] 
-    row_h = 7 
     headers = list(df_master.columns)
+    
+    # Dynamically adjust PDF columns based on Season (2 columns) vs Tournament (6 columns)
+    if len(headers) == 2:
+        col_w = [125, 125]
+    else:
+        col_w = [40, 42, 42, 42, 42, 42] 
+        
+    row_h = 7 
     
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(200, 220, 255)
@@ -291,18 +289,15 @@ def create_ecga_pdf(title, df_master, df_shots):
     
     for index, row in df_master.iterrows():
         cat = row['Category']
-        if row[headers[1]] == "":
+        if row["AV / TOTAL"] == "":
             pdf.set_fill_color(240, 240, 240)
             pdf.set_font("Arial", 'B', 10)
             pdf.cell(sum(col_w), row_h, txt=cat, border=1, fill=True, ln=True, align='L')
             pdf.set_font("Arial", '', 10) 
         else:
-            pdf.cell(col_w[0], row_h, txt=cat, border=1)
-            pdf.cell(col_w[1], row_h, txt=str(row[headers[1]]), border=1, align='C')
-            pdf.cell(col_w[2], row_h, txt=str(row[headers[2]]), border=1, align='C')
-            pdf.cell(col_w[3], row_h, txt=str(row[headers[3]]), border=1, align='C')
-            pdf.cell(col_w[4], row_h, txt=str(row[headers[4]]), border=1, align='C')
-            pdf.cell(col_w[5], row_h, txt=str(row[headers[5]]), border=1, align='C')
+            for i, h in enumerate(headers):
+                align = 'L' if i == 0 else 'C'
+                pdf.cell(col_w[i], row_h, txt=str(row[h]), border=1, align=align)
             pdf.ln()
 
     # === PAGE 2: DISPERSION CHARTS ===
@@ -488,26 +483,29 @@ else:
     # --- PAGE: SEASON MASTER DASHBOARD ---
     elif st.session_state.page == "Season Master":
         st.title("📊 Season Master Dashboard")
-        st.write("Accumulated statistics across your entire season. The columns represent your most recent tournaments.")
+        st.write("Accumulated statistics across your entire season.")
         
         all_shots = load_shots(st.session_state.current_user)
         all_stats = load_all_stats(st.session_state.current_user)
         
         if not all_shots.empty or all_stats:
+            # Builds a 2-column dataframe: Category and AV / TOTAL
             df_master = build_master_dataframe(all_shots, all_stats, mode="season")
             df_ui = df_master.copy()
-            df_ui['Category'] = df_ui.apply(lambda r: f"**{r['Category']}**" if r[df_master.columns[1]] == "" else r['Category'], axis=1)
+            df_ui['Category'] = df_ui.apply(lambda r: f"**{r['Category']}**" if r['AV / TOTAL'] == "" else r['Category'], axis=1)
             
+            # Formats the table to be beautifully centered with 50/50 width for the 2 columns
             st.markdown("""
                 <style>
                 .stTable table { width: 100%; }
                 .stTable th, .stTable td { white-space: nowrap !important; text-align: center !important; }
-                .stTable th:first-child, .stTable td:first-child { width: 15% !important; text-align: left !important; }
+                .stTable th:first-child, .stTable td:first-child { width: 50% !important; text-align: left !important; }
                 </style>
             """, unsafe_allow_html=True)
             
             st.table(df_ui.set_index('Category'))
             
+            # The PDF engine will automatically detect 2 columns and space them cleanly
             pdf_bytes = create_ecga_pdf("Season Master", df_master, all_shots)
             st.download_button(
                 label="📄 Download Season-Long 2-Page Report",
@@ -521,14 +519,24 @@ else:
             st.subheader("Season Dispersion Analytics")
             st.write("### Scoring Zone (Approach)")
             c1, c2, c3 = st.columns(3)
-            with c1: st.image(create_target_image(all_shots[all_shots['Range'] == '50-100'], '50-100'))
-            with c2: st.image(create_target_image(all_shots[all_shots['Range'] == '101-150'], '101-150'))
-            with c3: st.image(create_target_image(all_shots[all_shots['Range'] == '151-200'], '151-200'))
+            with c1: 
+                st.markdown("<h4 style='text-align: center;'>50-100m</h4>", unsafe_allow_html=True)
+                st.image(create_target_image(all_shots[all_shots['Range'] == '50-100'], '50-100'))
+            with c2: 
+                st.markdown("<h4 style='text-align: center;'>101-150m</h4>", unsafe_allow_html=True)
+                st.image(create_target_image(all_shots[all_shots['Range'] == '101-150'], '101-150'))
+            with c3: 
+                st.markdown("<h4 style='text-align: center;'>151-200m</h4>", unsafe_allow_html=True)
+                st.image(create_target_image(all_shots[all_shots['Range'] == '151-200'], '151-200'))
             
             st.write("### Long Game (Off the Tee)")
             c4, c5 = st.columns(2)
-            with c4: st.image(create_tee_image(all_shots[all_shots['Range'] == 'OTT: Driver'], 'OTT: Driver'))
-            with c5: st.image(create_tee_image(all_shots[all_shots['Range'] == 'OTT: Others'], 'OTT: Others'))
+            with c4: 
+                st.markdown("<h4 style='text-align: center;'>OTT: Driver</h4>", unsafe_allow_html=True)
+                st.image(create_tee_image(all_shots[all_shots['Range'] == 'OTT: Driver'], 'OTT: Driver'))
+            with c5: 
+                st.markdown("<h4 style='text-align: center;'>OTT: Others</h4>", unsafe_allow_html=True)
+                st.image(create_tee_image(all_shots[all_shots['Range'] == 'OTT: Others'], 'OTT: Others'))
 
         else:
             st.info("No data available yet for the season.")
