@@ -225,12 +225,12 @@ def create_tee_image(df_filtered, label):
     
     # --- 4. DATA AGGREGATION ENGINE ---
 def format_score_cell(list_s):
-    valid_rounds = [s for s in list_s if s.get('gross_score', 0) > 0]
+    valid_rounds = [s for s in list_s if (s.get('gross_score') or 0) > 0]
     if not valid_rounds: 
         return "-"
     
-    avg_gross = sum(s.get('gross_score', 0) for s in valid_rounds) / len(valid_rounds)
-    avg_to_par = sum(s.get('to_par', 0) for s in valid_rounds) / len(valid_rounds)
+    avg_gross = sum((s.get('gross_score') or 0) for s in valid_rounds) / len(valid_rounds)
+    avg_to_par = sum((s.get('to_par') or 0) for s in valid_rounds) / len(valid_rounds)
     
     gross_str = f"{avg_gross:.1f}".replace(".0", "")
     to_par_str = f"{avg_to_par:.1f}".replace(".0", "")
@@ -248,13 +248,13 @@ def calc_metrics(df_s, list_s, logic_type, param):
     if logic_type == "driving":
         for s in list_s:
             if param == "OTT: Driver":
-                num += s.get('d_hit', 0)
-                den += s.get('d_tot', 0)
-                extra += s.get('d_pen', 0)
+                num += (s.get('d_hit') or 0)
+                den += (s.get('d_tot') or 0)
+                extra += (s.get('d_pen') or 0)
             elif param == "OTT: Others":
-                num += s.get('o_hit', 0)
-                den += s.get('o_tot', 0)
-                extra += s.get('o_pen', 0)
+                num += (s.get('o_hit') or 0)
+                den += (s.get('o_tot') or 0)
+                extra += (s.get('o_pen') or 0)
                 
     elif logic_type == "approach":
         df_a = df_s[df_s['Range'] == param]
@@ -269,29 +269,29 @@ def calc_metrics(df_s, list_s, logic_type, param):
             
     elif logic_type == "abs":
         for s in list_s:
-            v = s.get(param, 0)
+            v = s.get(param) or 0
             if v != 0: 
                 num += v
                 den += 1
                 
     elif logic_type == "sg_perc":
         for s in list_s: 
-            num += s.get(param, 0)
-            den += s.get('sg_total', 0)
+            num += (s.get(param) or 0)
+            den += (s.get('sg_total') or 0)
             
     elif logic_type == "sgz":
         for s in list_s: 
-            num += s.get('sgz_score', 0)
-            den += s.get('sg_total', 0)
+            num += (s.get('sgz_score') or 0)
+            den += (s.get('sg_total') or 0)
             
     elif logic_type == "lag":
         for s in list_s: 
-            num += s.get('lag_success', 0)
-            den += s.get('lag_total', 0)
+            num += (s.get('lag_success') or 0)
+            den += (s.get('lag_total') or 0)
             
     elif logic_type == "sg_putt":
         for s in list_s:
-            v = s.get('sg_putting', 0.0)
+            v = s.get('sg_putting') or 0.0
             if v != 0: 
                 num += v
                 den += 1
