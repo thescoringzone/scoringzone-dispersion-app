@@ -15,7 +15,43 @@ from supabase import create_client
 st.set_page_config(page_title="The Score Code", layout="wide")
 
 st.markdown("""
-   /* 6. MOBILE OPTIMIZATIONS: Force speed logger columns to stay horizontal on phones */
+   st.markdown("""
+    <style>
+    /* 1. Import Premium Fonts from Google */
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;600&display=swap');
+
+    /* 2. Apply crisp Montserrat to general text */
+    html, body, [class*="css"], [class*="st-"], .stMarkdown, .stText {
+        font-family: 'Montserrat', sans-serif !important;
+    }
+    
+    /* 3. PROTECT UI ICONS: Force Streamlit icons to keep their native font */
+    .material-symbols-rounded, .material-icons, [data-testid="stIconMaterial"], [class*="stIcon"] {
+        font-family: 'Material Symbols Rounded', sans-serif !important;
+    }
+    
+    /* 4. Apply sophisticated Playfair Display to all Headers and Titles */
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Playfair Display', serif !important;
+        font-weight: 600 !important;
+    }
+
+    /* 5. Keep our larger slider thumb styling */
+    div[data-baseweb="slider"] div[role="slider"] {
+        height: 24px !important;
+        width: 24px !important;
+        border-radius: 50% !important;
+        box-shadow: 0 0 4px rgba(0,0,0,0.3) !important;
+    }
+    
+    div[data-baseweb="slider"] div[data-testid="stThumbValue"] {
+        font-size: 16px !important;
+        font-weight: bold !important;
+        transform: translateY(-8px) !important; 
+        font-family: 'Montserrat', sans-serif !important;
+    }
+
+    /* 6. MOBILE OPTIMIZATIONS: Force speed logger columns to stay horizontal on phones */
     @media (max-width: 768px) {
         /* Un-stack the columns for any row with our hidden anchor */
         div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] {
@@ -63,40 +99,6 @@ st.markdown("""
         div[data-testid="element-container"]:has(.putt-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) {
             flex: 2 1 0% !important;
         }
-    }
-    <style>
-    /* 1. Import Premium Fonts from Google */
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;600&display=swap');
-
-    /* 2. Apply crisp Montserrat to general text */
-    html, body, [class*="css"], [class*="st-"], .stMarkdown, .stText {
-        font-family: 'Montserrat', sans-serif !important;
-    }
-    
-    /* 3. PROTECT UI ICONS: Force Streamlit icons to keep their native font */
-    .material-symbols-rounded, .material-icons, [data-testid="stIconMaterial"], [class*="stIcon"] {
-        font-family: 'Material Symbols Rounded', sans-serif !important;
-    }
-    
-    /* 4. Apply sophisticated Playfair Display to all Headers and Titles */
-    h1, h2, h3, h4, h5, h6 {
-        font-family: 'Playfair Display', serif !important;
-        font-weight: 600 !important;
-    }
-
-    /* 5. Keep our larger slider thumb styling */
-    div[data-baseweb="slider"] div[role="slider"] {
-        height: 24px !important;
-        width: 24px !important;
-        border-radius: 50% !important;
-        box-shadow: 0 0 4px rgba(0,0,0,0.3) !important;
-    }
-    
-    div[data-baseweb="slider"] div[data-testid="stThumbValue"] {
-        font-size: 16px !important;
-        font-weight: bold !important;
-        transform: translateY(-8px) !important; 
-        font-family: 'Montserrat', sans-serif !important;
     }
     </style>
 """, unsafe_allow_html=True)
