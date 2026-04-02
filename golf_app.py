@@ -15,6 +15,55 @@ from supabase import create_client
 st.set_page_config(page_title="The Score Code", layout="wide")
 
 st.markdown("""
+   /* 6. MOBILE OPTIMIZATIONS: Force speed logger columns to stay horizontal on phones */
+    @media (max-width: 768px) {
+        /* Un-stack the columns for any row with our hidden anchor */
+        div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 4px !important;
+        }
+        div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            min-width: 0 !important;
+            width: auto !important;
+            padding: 0 2px !important;
+        }
+        
+        /* A. Data Entry Button Rows */
+        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+            flex: 2.8 1 0% !important; /* Keep category text wider */
+        }
+        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:not(:first-child) {
+            flex: 1.2 1 0% !important;
+        }
+        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] button {
+            padding: 0px 0px !important;
+            min-height: 32px !important;
+        }
+        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] button p {
+            font-size: 11px !important; /* Shrink button text slightly to fit */
+        }
+        
+        /* B. Navigation Rows (Prev / Hole / Next) */
+        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] {
+            align-items: center !important;
+        }
+        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1),
+        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) {
+            flex: 1 1 0% !important;
+        }
+        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) {
+            flex: 2 1 0% !important;
+        }
+        
+        /* C. Putting Row */
+        div[data-testid="element-container"]:has(.putt-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) {
+            flex: 3 1 0% !important;
+        }
+        div[data-testid="element-container"]:has(.putt-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) {
+            flex: 2 1 0% !important;
+        }
+    }
     <style>
     /* 1. Import Premium Fonts from Google */
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;600&display=swap');
@@ -759,6 +808,7 @@ else:
                 def section_header(title): st.markdown(f"<div style='font-weight: 800; color: #1A237E; margin-top: 5px; margin-bottom: 2px; font-size: 0.9em; letter-spacing: 0.5px;'>{title}</div>", unsafe_allow_html=True)
 
                 with st.container(border=True):
+                    st.markdown("<div class='mobile-keep-row nav-row' style='display:none;'></div>", unsafe_allow_html=True)
                     col_prev, col_curr, col_next = st.columns([1, 2, 1])
                     with col_prev:
                         if st.button("⬅️ Prev", key="cpc_top_prev", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
@@ -773,6 +823,8 @@ else:
                     slim_divider()
 
                     def render_btn_row(category, options, subtext=None, disabled=False):
+                        st.markdown("<div class='mobile-keep-row btn-row' style='display:none;'></div>", unsafe_allow_html=True)
+                        cols = st.columns([2.8, 1.2, 1.2, 1.2, 1.2, 1.2])
                         cols = st.columns([2.8, 1.2, 1.2, 1.2, 1.2, 1.2]) 
                         if subtext: cols[0].markdown(f"<div style='margin-top: 2px; line-height: 1.1;'><b>{category}</b><br><span style='font-size: 0.7em; color: gray;'>{subtext}</span></div>", unsafe_allow_html=True)
                         else: cols[0].markdown(f"<div style='margin-top: 8px;'><b>{category}</b></div>", unsafe_allow_html=True)
@@ -903,6 +955,7 @@ else:
                     render_btn_row("Lag Putting", ["✅", "❌"], "Putts over 18ft finishing within 1 putter length")
                     st.markdown("<div style='margin-top: 8px;'><b>Strokes Gained Putting</b></div>", unsafe_allow_html=True)
                     with st.container(border=True):
+                        st.markdown("<div class='mobile-keep-row putt-row' style='display:none;'></div>", unsafe_allow_html=True)
                         c_dist, c_putts = st.columns([3, 2])
                         c_dist.caption("1st Putt Distance (ft)")
                         current_dist = int(active_data["Putt Dist (ft)"]) if active_data["Putt Dist (ft)"] != "" else 0
@@ -922,6 +975,7 @@ else:
                             st.info(f"**Hole SG Putting:** {hole_sg:+.2f}")
 
                     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+                    st.markdown("<div class='mobile-keep-row nav-row' style='display:none;'></div>", unsafe_allow_html=True)
                     b_col_prev, b_col_curr, b_col_next = st.columns([1, 2, 1])
                     with b_col_prev:
                         if st.button("⬅️ Prev", key="bot_prev_cpc", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
