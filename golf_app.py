@@ -291,9 +291,8 @@ def format_cell(logic_type, num, den, extra):
     if den == 0: 
         return "-"
     if logic_type == "driving": 
-        # Shows 75%(2) if penalties exist, otherwise just shows 75%
-        pen_str = f"({extra})" if extra > 0 else ""
-        return f"{(num/den)*100:.0f}%{pen_str}"
+        # Restored: Always shows the penalty number in parentheses, even if it is 0
+        return f"{(num/den)*100:.0f}% ({extra})"
     if logic_type == "approach": 
         sign = "+" if num > 0 else ""
         return f"{sign}{num}({den})"
