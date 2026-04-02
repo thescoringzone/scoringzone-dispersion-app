@@ -604,7 +604,7 @@ else:
                 st.markdown(f"### {r_name}")
                 if st.button(f"Edit Data", use_container_width=True, key=f"btn_{r_name}"):
                     st.session_state.active_r = r_name
-                    st.session_state.workflow_step = "Score & Driving"
+                    st.session_state.workflow_step = "Speed Logger"
                     st.session_state.page = "Data Entry"
                     st.rerun()
                     
@@ -712,9 +712,10 @@ else:
 
     # --- PAGE: DATA ENTRY ---
     elif st.session_state.page == "Data Entry":
-        st.title(f"{st.session_state.active_t} - {st.session_state.active_r if st.session_state.workflow_step != 'Master Dashboard' else 'Tournament Dashboard'}")
+        st.title(f"{st.session_state.active_t} - {st.session_state.active_r}")
         
-        steps = ["Score & Driving", "Scoring Zone", "Short Game", "Putting", "Mental & Judgement", "Master Dashboard"] 
+        # Simplified Navigation: We only need two phases now!
+        steps = ["Speed Logger", "Tournament Dashboard"] 
         selected_step = st.radio("Phase:", steps, horizontal=True, index=steps.index(st.session_state.workflow_step) if st.session_state.workflow_step in steps else 0)
         
         if selected_step != st.session_state.workflow_step:
@@ -725,186 +726,366 @@ else:
         current_stats = load_round_stats(st.session_state.current_user, st.session_state.active_t, st.session_state.active_r)
         cid = current_stats['id']
 
-        if st.session_state.workflow_step == "Score & Driving":
-            st.subheader("Round Score")
-            col_s1, col_s2 = st.columns(2)
-            
-            col_s1.number_input("Gross Score (e.g. 70)", min_value=0, max_value=150, value=current_stats.get('gross_score',0), key=f"gs_{cid}", on_change=auto_save_stat, args=("gross_score", f"gs_{cid}", cid))
-            col_s2.number_input("To Par (e.g. -2, E=0, +3)", min_value=-30, max_value=30, value=current_stats.get('to_par',0), key=f"tp_{cid}", on_change=auto_save_stat, args=("to_par", f"tp_{cid}", cid))
-            
-            st.divider()
-            st.subheader("Off The Tee")
-            t_tabs = st.tabs(["OTT: Driver", "OTT: Others"])
-            for i, r_label in enumerate(["OTT: Driver", "OTT: Others"]):
-                with t_tabs[i]:
-                    st.markdown(f"**Manual Stats Input** (Reflected on Stats Sheets)")
-                    c_d1, c_d2, c_d3 = st.columns(3)
-                    if r_label == "OTT: Driver":
-                        c_d1.number_input("Fairways Hit", 0, 20, current_stats.get('d_hit',0), key=f"dh_{cid}", on_change=auto_save_stat, args=("d_hit", f"dh_{cid}", cid))
-                        c_d2.number_input("Total Drives", 0, 20, current_stats.get('d_tot',0), key=f"dt_{cid}", on_change=auto_save_stat, args=("d_tot", f"dt_{cid}", cid))
-                        c_d3.number_input("Penalties", 0, 20, current_stats.get('d_pen',0), key=f"dp_{cid}", on_change=auto_save_stat, args=("d_pen", f"dp_{cid}", cid))
-                    else:
-                        c_d1.number_input("Fairways Hit", 0, 20, current_stats.get('o_hit',0), key=f"oh_{cid}", on_change=auto_save_stat, args=("o_hit", f"oh_{cid}", cid))
-                        c_d2.number_input("Total Drives", 0, 20, current_stats.get('o_tot',0), key=f"ot_{cid}", on_change=auto_save_stat, args=("o_tot", f"ot_{cid}", cid))
-                        c_d3.number_input("Penalties", 0, 20, current_stats.get('o_pen',0), key=f"op_{cid}", on_change=auto_save_stat, args=("o_pen", f"op_{cid}", cid))
-                    
-                    st.markdown("<br><b>Visual Dispersion Plot</b> (Reflected in App & PDF Analytics)", unsafe_allow_html=True)
-                    df_v = st.session_state.shots_data[(st.session_state.shots_data['Tournament'] == st.session_state.active_t) & (st.session_state.shots_data['Round'] == st.session_state.active_r) & (st.session_state.shots_data['Range'] == r_label)]
-                    val = streamlit_image_coordinates(create_tee_image(df_v, r_label), key=f"img_{r_label}_{len(df_v)}")
-                    
-                    if val:
-                        px, py = val['x'], val['y']
-                        y_min, y_max = (270, 320) if r_label == "OTT: Driver" else (220, 270)
-                        x_m = round((px / 500.0) * 60 - 30, 2)
-                        y_m = round(y_max - (py / 500.0) * 50, 2)
-                        supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Round": st.session_state.active_r, "Range": r_label, "X": x_m, "Y": y_m}).execute()
-                        st.toast("☁️ Saved securely to cloud", icon="✅")
-                        st.session_state.shots_data = load_shots(st.session_state.current_user)
-                        st.rerun()
-                        
-                    if not df_v.empty and st.button(f"Undo Last Point Plotted", key=f"un_{r_label}"):
-                        supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
-                        st.session_state.shots_data = load_shots(st.session_state.current_user)
-                        st.rerun()
+        if st.session_state.workflow_step == "Speed Logger":
+            categories = ["Driving", "Other Club", "150-200m", "100-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
 
-        elif st.session_state.workflow_step == "Scoring Zone":
-            t_tabs = st.tabs(["50-100m", "101-150m", "151-200m"])
-            for i, r_label in enumerate(["50-100", "101-150", "151-200"]):
-                with t_tabs[i]:
-                    df_v = st.session_state.shots_data[(st.session_state.shots_data['Tournament'] == st.session_state.active_t) & (st.session_state.shots_data['Round'] == st.session_state.active_r) & (st.session_state.shots_data['Range'] == r_label)]
-                    val = streamlit_image_coordinates(create_target_image(df_v, r_label), key=f"img_{r_label}_{len(df_v)}")
+            # Load existing hole-by-hole data if it exists in the DB, otherwise initialize blank
+            existing_speed_data = current_stats.get('speed_logger_data')
+            if existing_speed_data and isinstance(existing_speed_data, dict) and "1" in existing_speed_data:
+                if "cpc_notepad" not in st.session_state:
+                    st.session_state.cpc_notepad = existing_speed_data
+                    st.session_state.cpc_hole = 1
+            else:
+                if "cpc_notepad" not in st.session_state:
+                    st.session_state.cpc_notepad = {str(i): {cat: "" for cat in categories} for i in range(1, 19)}
+                    st.session_state.cpc_hole = 1
+            
+            st.markdown("#### 🚩 Round Setup")
+            c1, c2, c3 = st.columns(3)
+            sl_holes = c1.radio("Holes Played:", [9, 18], index=1, horizontal=True, key="cpc_sl_holes")
+            pr_gross = c2.number_input("Gross Score", min_value=20, max_value=150, value=current_stats.get('gross_score', 72 if sl_holes==18 else 36), step=1, key="cpc_fast_gross")
+            pr_to_par = c3.number_input("Score to Par (e.g., -2 or +3)", value=current_stats.get('to_par', 0), step=1, key="cpc_fast_par")
+            st.divider()
+
+            @st.fragment
+            def render_speed_logger():
+                active_h = str(st.session_state.cpc_hole)
+                active_data = st.session_state.cpc_notepad[active_h]
+                can_proceed = (active_data["Putts"] != "") and not (active_data["< 6ft"] != "" and active_data["Up & Down"] == "")
+
+                def slim_divider(): st.markdown("<hr style='margin: 8px 0px; border: none; border-top: 1px solid #ddd;'>", unsafe_allow_html=True)
+                def section_header(title): st.markdown(f"<div style='font-weight: 800; color: #1A237E; margin-top: 5px; margin-bottom: 2px; font-size: 0.9em; letter-spacing: 0.5px;'>{title}</div>", unsafe_allow_html=True)
+
+                with st.container(border=True):
+                    col_prev, col_curr, col_next = st.columns([1, 2, 1])
+                    with col_prev:
+                        if st.button("⬅️ Prev", key="cpc_top_prev", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
+                            st.session_state.cpc_hole -= 1
+                            st.rerun(scope="fragment")
+                    with col_curr:
+                        st.markdown(f"<h3 style='text-align: center; margin-top: 0px; margin-bottom: 0px;'>⛳ Hole {st.session_state.cpc_hole}</h3>", unsafe_allow_html=True)
+                    with col_next:
+                        if st.button("Next ➡️", key="cpc_top_next", use_container_width=True, disabled=(st.session_state.cpc_hole == sl_holes or not can_proceed)):
+                            st.session_state.cpc_hole += 1
+                            st.rerun(scope="fragment")
+                    slim_divider()
+
+                    def render_btn_row(category, options, subtext=None, disabled=False):
+                        cols = st.columns([2.8, 1.2, 1.2, 1.2, 1.2, 1.2]) 
+                        if subtext: cols[0].markdown(f"<div style='margin-top: 2px; line-height: 1.1;'><b>{category}</b><br><span style='font-size: 0.7em; color: gray;'>{subtext}</span></div>", unsafe_allow_html=True)
+                        else: cols[0].markdown(f"<div style='margin-top: 8px;'><b>{category}</b></div>", unsafe_allow_html=True)
+                        for i, opt in enumerate(options):
+                            is_selected = st.session_state.cpc_notepad[active_h][category] == str(opt)
+                            btn_type = "primary" if is_selected else "secondary"
+                            if cols[i+1].button(str(opt), key=f"cpc_{active_h}_{category}_{opt}", type=btn_type, use_container_width=True, disabled=disabled):
+                                if is_selected: st.session_state.cpc_notepad[active_h][category] = ""
+                                else: st.session_state.cpc_notepad[active_h][category] = str(opt)
+                                if category == "GIR" and st.session_state.cpc_notepad[active_h]["GIR"] == "":
+                                    st.session_state.cpc_notepad[active_h]["GIR < 5m"] = ""
+                                st.rerun(scope="fragment")
+
+                    # --- 🚀 LONG GAME ---
+                    section_header("🚀 LONG GAME")
+                    render_btn_row("Driving", ["✅", "❌"], "Driver off the tee")
+                    render_btn_row("Other Club", ["✅", "❌"], "Other club off the tee")
                     
-                    if val:
-                        px, py = val['x'], val['y']
-                        _, limit = get_radii(r_label)
-                        limit += 2
-                        x_m = round((px / 500.0) * (2 * limit) - limit, 2)
-                        y_m = round(limit - (py / 500.0) * (2 * limit), 2)
-                        supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Round": st.session_state.active_r, "Range": r_label, "X": x_m, "Y": y_m}).execute()
-                        st.toast("☁️ Saved securely to cloud", icon="✅")
-                        st.session_state.shots_data = load_shots(st.session_state.current_user)
-                        st.rerun()
+                    active_driver = active_data["Driving"] in ["✅", "❌"]
+                    active_other = active_data["Other Club"] in ["✅", "❌"]
+                    
+                    if active_driver or active_other:
+                        r_label = "OTT: Driver" if active_driver else "OTT: Others"
+                        st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; color: gray;'><b>Plot your {r_label} Dispersion:</b></div>", unsafe_allow_html=True)
                         
-                    if not df_v.empty:
-                        df_v = df_v.copy()
-                        df_v['d'] = np.sqrt(df_v['X']**2 + df_v['Y']**2)
-                        rb, rp = get_radii(r_label)
-                        b = len(df_v[df_v['d'] <= rb])
-                        bog = len(df_v[df_v['d'] > rp])
-                        tot = len(df_v)
-                        to_par = (b * -1) + (bog * 1)
-                        st.info(f"**Tournament Sheet Stat:** {to_par}({tot})") 
+                        df_v = st.session_state.shots_data[
+                            (st.session_state.shots_data['Tournament'] == st.session_state.active_t) & 
+                            (st.session_state.shots_data['Round'] == st.session_state.active_r) & 
+                            (st.session_state.shots_data['Range'] == r_label)
+                        ]
                         
-                        if st.button(f"Undo Last Shot", key=f"un_{r_label}"):
+                        val = streamlit_image_coordinates(create_tee_image(df_v, r_label), key=f"img_{r_label}_{active_h}_{len(df_v)}")
+                        
+                        if val:
+                            px, py = val['x'], val['y']
+                            y_min, y_max = (270, 320) if r_label == "OTT: Driver" else (220, 270)
+                            x_m = round((px / 500.0) * 60 - 30, 2)
+                            y_m = round(y_max - (py / 500.0) * 50, 2)
+                            
+                            supabase.table("shots").insert({
+                                "User": st.session_state.current_user, 
+                                "Tournament": st.session_state.active_t, 
+                                "Round": st.session_state.active_r, 
+                                "Range": r_label, 
+                                "X": x_m, "Y": y_m
+                            }).execute()
+                            
+                            st.toast(f"📍 {r_label} plotted!", icon="✅")
+                            st.session_state.shots_data = load_shots(st.session_state.current_user)
+                            st.rerun(scope="fragment")
+
+                        if not df_v.empty and st.button(f"Undo Last Tee Shot", key=f"un_tee_{active_h}"):
                             supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
-                            st.rerun()
+                            st.rerun(scope="fragment")
+
+                    slim_divider()
+
+                    # --- 🎯 SCORING ZONE ---
+                    section_header("🎯 SCORING ZONE")
+                    sz_dist = st.selectbox("Approach Distance Range:", ["No Approach", "50-100m", "101-150m", "151-200m"], key=f"sz_sel_{active_h}")
+                    
+                    for rng in ["50-100m", "101-150m", "151-200m"]:
+                        if rng != sz_dist:
+                            st.session_state.cpc_notepad[active_h][rng] = ""
                             
-            st.divider()
-            st.subheader("Manual Inputs (Scoring Zone)")
-            col1, col2 = st.columns(2)
-            with col1: 
-                st.number_input("GIR < 5", min_value=0, max_value=18, value=current_stats.get('gir_less_5', 0), key=f"g5_{cid}", on_change=auto_save_stat, args=("gir_less_5", f"g5_{cid}", cid))
-            with col2: 
-                st.number_input("Total GIR", min_value=0, max_value=18, value=current_stats.get('gir', 0), key=f"g_{cid}", on_change=auto_save_stat, args=("gir", f"g_{cid}", cid))
-
-        elif st.session_state.workflow_step == "Short Game":
-            st.subheader("Short Game (SG)")
-            sg_tot = st.number_input("Total SG Shots (#)", min_value=0, value=current_stats.get('sg_total', 0), key=f"sgt_{cid}", on_change=auto_save_stat, args=("sg_total", f"sgt_{cid}", cid))
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Successes:**")
-                st.number_input("< 6ft", min_value=0, max_value=sg_tot, value=current_stats.get('sg_inside_6', 0), key=f"sg6_{cid}", on_change=auto_save_stat, args=("sg_inside_6", f"sg6_{cid}", cid))
-                st.number_input("< 3ft", min_value=0, max_value=sg_tot, value=current_stats.get('sg_inside_3', 0), key=f"sg3_{cid}", on_change=auto_save_stat, args=("sg_inside_3", f"sg3_{cid}", cid))
-                st.number_input("U&D", min_value=0, max_value=sg_tot, value=current_stats.get('sg_ud', 0), key=f"sgu_{cid}", on_change=auto_save_stat, args=("sg_ud", f"sgu_{cid}", cid))
-                st.number_input("SGZ Score", value=current_stats.get('sgz_score', 0), key=f"sgz_{cid}", on_change=auto_save_stat, args=("sgz_score", f"sgz_{cid}", cid))
-            with col2:
-                st.markdown("**Tournament Sheet Output:**")
-                if sg_tot > 0:
-                    st.write(f"**< 6:** {(current_stats.get('sg_inside_6',0)/sg_tot)*100:.0f}%")
-                    st.write(f"**< 3:** {(current_stats.get('sg_inside_3',0)/sg_tot)*100:.0f}%")
-                    st.write(f"**U&D:** {(current_stats.get('sg_ud',0)/sg_tot)*100:.0f}%")
-                    st.write(f"**SGZ:** {current_stats.get('sgz_score',0)}({sg_tot})")
-
-        elif st.session_state.workflow_step == "Putting":
-            st.subheader("Strokes Gained Putting")
-            putt_mode = st.radio("Input Method:", ["Hole-by-Hole Calculator", "Manual Tour Data Entry"], horizontal=True)
-            
-            if putt_mode == "Manual Tour Data Entry":
-                st.info("Input your official Strokes Gained and Total Putts directly from your Tour Data provider.")
-                col_m1, col_m2 = st.columns(2)
-                col_m1.number_input("Total Putts", min_value=0, max_value=100, value=int(current_stats.get('putts_total', 0)), key=f"m_pt_{cid}", on_change=auto_save_stat, args=("putts_total", f"m_pt_{cid}", cid))
-                col_m2.number_input("Total SG Putting", value=float(current_stats.get('sg_putting', 0.0)), step=0.1, key=f"m_sg_{cid}", on_change=auto_save_stat, args=("sg_putting", f"m_sg_{cid}", cid))
-            else:
-                metric_cols = st.columns(2)
-                m_putts = metric_cols[0].empty()
-                m_sg = metric_cols[1].empty()
-                
-                raw_grid = current_stats.get('putting_holes')
-                if not raw_grid or len(raw_grid) != 18: 
-                    raw_grid = [{"Hole": f"Hole {i}", "Distance (ft)": 0, "Putts": 0} for i in range(1, 19)]
-                new_grid = []
-                total_putts = 0
-                total_sg = 0.0
-                
-                st.caption("Slide to select distance, tap to select putts (0 = Not Played).")
-                
-                with st.expander("⛳ Front 9", expanded=True):
-                    for i in range(9):
-                        with st.container(border=True):
-                            st.markdown(f"**Hole {i+1}**")
-                            c1, c2 = st.columns([3, 2])
-                            c1.caption("Distance (ft)")
-                            dist = c1.slider(f"Hole {i+1} Dist", 0, 100, int(raw_grid[i]["Distance (ft)"]), key=f"dist_{cid}_{i}", label_visibility="collapsed")
-                            c2.caption("Putts")
-                            putts = c2.radio(f"Hole {i+1} Putts", [0, 1, 2, 3, 4], index=int(raw_grid[i]["Putts"]), horizontal=True, key=f"putts_{cid}_{i}", label_visibility="collapsed")
-                            new_grid.append({"Hole": f"Hole {i+1}", "Distance (ft)": dist, "Putts": putts})
+                    if sz_dist != "No Approach":
+                        r_label = sz_dist.replace("m", "") 
+                        current_sz_score = active_data[sz_dist]
+                        if current_sz_score:
+                            st.info(f"**Current Score:** {current_sz_score} (Click chart to update)")
                         
-                with st.expander("⛳ Back 9", expanded=False):
-                    for i in range(9, 18):
-                        with st.container(border=True):
-                            st.markdown(f"**Hole {i+1}**")
-                            c1, c2 = st.columns([3, 2])
-                            c1.caption("Distance (ft)")
-                            dist = c1.slider(f"Hole {i+1} Dist", 0, 100, int(raw_grid[i]["Distance (ft)"]), key=f"dist_{cid}_{i}", label_visibility="collapsed")
-                            c2.caption("Putts")
-                            putts = c2.radio(f"Hole {i+1} Putts", [0, 1, 2, 3, 4], index=int(raw_grid[i]["Putts"]), horizontal=True, key=f"putts_{cid}_{i}", label_visibility="collapsed")
-                            new_grid.append({"Hole": f"Hole {i+1}", "Distance (ft)": dist, "Putts": putts})
-                
-                for row in new_grid:
-                    dist = row["Distance (ft)"]
-                    putts = row["Putts"]
-                    if putts > 0: 
-                        total_putts += putts
-                    if dist > 0 and putts > 0: 
-                        total_sg += (get_expected_putts(dist) - putts)
+                        df_sz = st.session_state.shots_data[
+                            (st.session_state.shots_data['Tournament'] == st.session_state.active_t) & 
+                            (st.session_state.shots_data['Round'] == st.session_state.active_r) & 
+                            (st.session_state.shots_data['Range'] == r_label)
+                        ]
                         
-                m_putts.metric("Total Putts", total_putts)
-                m_sg.metric("Total SG Putting", f"{total_sg:+.2f}")
-                
-                if new_grid != raw_grid: 
-                    supabase.table("round_stats").update({"putting_holes": new_grid, "putts_total": total_putts, "sg_putting": round(total_sg, 2)}).eq("id", cid).execute()
-            
+                        sz_val = streamlit_image_coordinates(create_target_image(df_sz, r_label), key=f"img_sz_{active_h}_{len(df_sz)}")
+                        
+                        if sz_val:
+                            px, py = sz_val['x'], sz_val['y']
+                            rb, rp = get_radii(r_label)
+                            limit = rp + 2
+                            x_m = round((px / 500.0) * (2 * limit) - limit, 2)
+                            y_m = round(limit - (py / 500.0) * (2 * limit), 2)
+                            
+                            d = np.sqrt(x_m**2 + y_m**2)
+                            if d <= rb: auto_score = "-1"
+                            elif d <= rp: auto_score = "E"
+                            else: auto_score = "+1"
+                            
+                            supabase.table("shots").insert({
+                                "User": st.session_state.current_user, 
+                                "Tournament": st.session_state.active_t, 
+                                "Round": st.session_state.active_r, 
+                                "Range": r_label, 
+                                "X": x_m, "Y": y_m
+                            }).execute()
+                            
+                            st.session_state.cpc_notepad[active_h][sz_dist] = auto_score
+                            st.toast(f"📍 Approach scored as {auto_score}", icon="✅")
+                            st.session_state.shots_data = load_shots(st.session_state.current_user)
+                            st.rerun(scope="fragment")
+                            
+                        if not df_sz.empty and st.button(f"Undo Last Approach", key=f"un_sz_{active_h}"):
+                            supabase.table("shots").delete().eq("id", int(df_sz.iloc[-1]['id'])).execute()
+                            st.session_state.shots_data = load_shots(st.session_state.current_user)
+                            st.session_state.cpc_notepad[active_h][sz_dist] = "" 
+                            st.rerun(scope="fragment")
+
+                    render_btn_row("GIR", ["✅"])
+                    render_btn_row("GIR < 5m", ["✅"], "GIR within 5m from hole", disabled=(active_data["GIR"] != "✅"))
+                    slim_divider()
+
+                    # --- 🪤 SHORT GAME ---
+                    section_header("🪤 SHORT GAME")
+                    render_btn_row("< 6ft", ["✅", "❌"], "Short game shots (under 50m) hit within 6ft of hole")
+                    render_btn_row("< 3ft", ["✅", "❌"], "Inside 3ft", disabled=(active_data["< 6ft"] != "✅"))
+                    
+                    ud_subtext = "<span style='color: #D32F2F;'>*Required</span>" if active_data["< 6ft"] != "" and active_data["Up & Down"] == "" else ""
+                    render_btn_row("Up & Down", ["✅", "❌"], subtext=ud_subtext)
+                    render_btn_row("SGZ", ["+2", "+1", "E", "-1", "-2"], "Short Game Zone Score")
+                    slim_divider()
+
+                    # --- ⛳ PUTTING ---
+                    section_header("⛳ PUTTING")
+                    render_btn_row("Lag Putting", ["✅", "❌"], "Putts over 18ft finishing within 1 putter length")
+                    st.markdown("<div style='margin-top: 8px;'><b>Strokes Gained Putting</b></div>", unsafe_allow_html=True)
+                    with st.container(border=True):
+                        c_dist, c_putts = st.columns([3, 2])
+                        c_dist.caption("1st Putt Distance (ft)")
+                        current_dist = int(active_data["Putt Dist (ft)"]) if active_data["Putt Dist (ft)"] != "" else 0
+                        new_dist = c_dist.slider(f"Dist_Hole_{active_h}", 0, 100, current_dist, key=f"dist_{active_h}", label_visibility="collapsed")
+                        
+                        c_putts.caption("Putts")
+                        current_putts = int(active_data["Putts"]) if active_data["Putts"] != "" else 0
+                        new_putts = c_putts.radio(f"Putts_Hole_{active_h}", [0, 1, 2, 3, 4], index=current_putts, horizontal=True, key=f"putts_{active_h}", label_visibility="collapsed")
+                        
+                        if new_dist != current_dist or new_putts != current_putts:
+                            st.session_state.cpc_notepad[active_h]["Putt Dist (ft)"] = str(new_dist)
+                            st.session_state.cpc_notepad[active_h]["Putts"] = str(new_putts)
+                            st.rerun(scope="fragment")
+
+                        if new_putts > 0 and new_dist > 0:
+                            hole_sg = get_expected_putts(new_dist) - new_putts
+                            st.info(f"**Hole SG Putting:** {hole_sg:+.2f}")
+
+                    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+                    b_col_prev, b_col_curr, b_col_next = st.columns([1, 2, 1])
+                    with b_col_prev:
+                        if st.button("⬅️ Prev", key="bot_prev_cpc", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
+                            st.session_state.cpc_hole -= 1
+                            st.rerun(scope="fragment")
+                    with b_col_next:
+                        if st.button("Next ➡️", key="bot_next_cpc", use_container_width=True, disabled=(st.session_state.cpc_hole == sl_holes or not can_proceed)):
+                            st.session_state.cpc_hole += 1
+                            st.rerun(scope="fragment")
+
+                st.write("<br>", unsafe_allow_html=True)
+                with st.expander("📊 View Full Scorecard", expanded=False):
+                    def calculate_totals(np, active_holes):
+                        t = {}
+                        valid_holes = {k: v for k, v in np.items() if int(k) <= active_holes}
+                        hp = sum(1 for h in valid_holes.values() if h["Putts"] != "" and h["Putts"] != "0")
+                        
+                        for cat in categories:
+                            if cat in ["Driving", "Other Club", "< 6ft", "< 3ft", "Up & Down", "Lag Putting"]:
+                                hits = sum(1 for h in valid_holes.values() if h[cat] == "✅")
+                                tot = hits + sum(1 for h in valid_holes.values() if h[cat] == "❌")
+                                t[cat] = f"{int((hits/tot)*100)}% ({hits}/{tot})" if tot > 0 else "-"
+                                
+                            elif cat in ["150-200m", "100-150m", "50-100m"]:
+                                sc, sh = 0, 0
+                                for h in valid_holes.values():
+                                    v = h[cat]
+                                    if v:
+                                        sh += 1
+                                        if v == "-2": sc -= 2
+                                        elif v == "-1": sc -= 1
+                                        elif v == "+1": sc += 1
+                                        elif v == "+2": sc += 2
+                                t[cat] = f"{'E' if sc == 0 else f'{sc:+}'} ({sh})" if sh > 0 else "-"
+                                
+                            elif cat == "GIR":
+                                hits = sum(1 for h in valid_holes.values() if h[cat] == "✅")
+                                t[cat] = f"{int((hits/hp)*100)}% ({hits}/{hp})" if hp > 0 else "-"
+                                
+                            elif cat == "GIR < 5m":
+                                hits = sum(1 for h in valid_holes.values() if h[cat] == "✅")
+                                t[cat] = f"{hits}" if hits > 0 else "-"
+                                
+                            elif cat == "SGZ":
+                                sgz_score = 0
+                                has_data = False
+                                for h in valid_holes.values():
+                                    v = h[cat]
+                                    if v:
+                                        has_data = True
+                                        if v != "E": sgz_score += int(v)
+                                t[cat] = f"{'+' if sgz_score > 0 else ''}{sgz_score}" if has_data else "-"
+                                
+                            elif cat == "Putts":
+                                p = sum(int(h[cat]) for h in valid_holes.values() if h[cat] != "")
+                                total_sg = 0.0
+                                for h in valid_holes.values():
+                                    d = int(h.get("Putt Dist (ft)") or 0)
+                                    pt = int(h.get("Putts") or 0)
+                                    if d > 0 and pt > 0: total_sg += (get_expected_putts(d) - pt)
+                                t[cat] = f"{p} (SG: {total_sg:+.2f})" if p > 0 else "-"
+                                
+                            elif cat == "Putt Dist (ft)":
+                                t[cat] = "-" 
+                                
+                        return t
+                        
+                    t_dict = calculate_totals(st.session_state.cpc_notepad, sl_holes) 
+                    df = pd.DataFrame(st.session_state.cpc_notepad)
+                    df = df[[str(i) for i in range(1, sl_holes + 1)]] 
+                    df['Total/Avg'] = df.index.map(lambda x: t_dict.get(x, "-"))
+                    df = df.reindex(categories)
+                    css = "<style>.compact-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: sans-serif; text-align: center; } .compact-table th, .compact-table td { border: 1px solid #e0e0e0; padding: 6px 2px; text-align: center; } .compact-table th { background-color: #f0f2f6; color: #31333F; } .compact-table tbody th { text-align: left; padding-left: 8px; background-color: #ffffff; } .compact-table tr td:last-child { font-weight: bold; background-color: #f8f9fa; color: #1A237E; }</style>"
+                    st.markdown(f"<div style='overflow-x: auto;'>{css}{df.to_html(classes='compact-table', escape=False)}</div>", unsafe_allow_html=True)
+
+            # Trigger Fragment
+            render_speed_logger()
+
+            # --- 🧠 POST-ROUND MENTAL REVIEW ---
             st.divider()
-            st.markdown("### Lag Putting")
-            lt = st.number_input("Total Lag Putts", min_value=0, value=current_stats.get('lag_total', 0), key=f"lt_{cid}", on_change=auto_save_stat, args=("lag_total", f"lt_{cid}", cid))
-            ls = st.number_input("Lags inside putter length", min_value=0, max_value=lt if lt>0 else 0, value=current_stats.get('lag_success', 0), key=f"ls_{cid}", on_change=auto_save_stat, args=("lag_success", f"ls_{cid}", cid))
-            if lt > 0: 
-                st.write(f"**Lag:** {(ls/lt)*100:.0f}%")
-
-        elif st.session_state.workflow_step == "Mental & Judgement":
-            st.subheader("Mental (M), Judgements (J), & Course Management (CM)")
-            st.slider("Mental Score (M)", min_value=0, max_value=100, value=current_stats.get('mental_score', 0), key=f"ms_{cid}", on_change=auto_save_stat, args=("mental_score", f"ms_{cid}", cid))
-            st.slider("Judgement Score (J)", min_value=0, max_value=100, value=current_stats.get('judgement_score', 0), key=f"js_{cid}", on_change=auto_save_stat, args=("judgement_score", f"js_{cid}", cid))
+            st.markdown("### 🧠 Post-Round Mental Review")
+            c_m1, c_m2, c_m3 = st.columns(3)
             
-            raw_cm = float(current_stats.get('cm_score', 0.0))
-            cm_val = min(10.0, raw_cm / 10.0 if raw_cm > 10.0 else raw_cm)
-            cm_rounded = round(cm_val * 20) / 20.0
+            current_ms = current_stats.get('mental_score', 0)
+            current_js = current_stats.get('judgement_score', 0)
+            current_cm = float(current_stats.get('cm_score', 0.0))
             
-            st.slider("Course Management Score (CM)", min_value=0.00, max_value=10.00, value=float(cm_rounded), step=0.05, format="%.2f", key=f"cm_{cid}", on_change=auto_save_stat, args=("cm_score", f"cm_{cid}", cid))
+            ms_val = c_m1.slider("Mental Score (M)", 0, 100, current_ms, key=f"ms_final_{cid}")
+            js_val = c_m2.slider("Judgement Score (J)", 0, 100, current_js, key=f"js_final_{cid}")
+            cm_val = c_m3.slider("Course Management (CM)", 0.0, 10.0, current_cm, step=0.5, key=f"cm_final_{cid}")
 
-        elif st.session_state.workflow_step == "Master Dashboard":
+            # --- 💾 MASTER SAVE FUNCTION ---
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("💾 Save Full Round Data", type="primary", use_container_width=True):
+                np_data = st.session_state.cpc_notepad
+                
+                agg = {
+                    "d_hit": 0, "d_tot": 0, "o_hit": 0, "o_tot": 0,
+                    "gir": 0, "gir_less_5": 0,
+                    "sg_total": 0, "sg_inside_6": 0, "sg_inside_3": 0, "sg_ud": 0, "sgz_score": 0,
+                    "lag_success": 0, "lag_total": 0,
+                    "putts_total": 0, "sg_putting": 0.0
+                }
+                
+                valid_holes = {k: v for k, v in np_data.items() if v["Putts"] != ""}
+                
+                for h, data in valid_holes.items():
+                    if data.get("Driving") == "✅": agg["d_hit"] += 1; agg["d_tot"] += 1
+                    elif data.get("Driving") == "❌": agg["d_tot"] += 1
+                    
+                    if data.get("Other Club") == "✅": agg["o_hit"] += 1; agg["o_tot"] += 1
+                    elif data.get("Other Club") == "❌": agg["o_tot"] += 1
+                    
+                    if data.get("GIR") == "✅": agg["gir"] += 1
+                    if data.get("GIR < 5m") == "✅": agg["gir_less_5"] += 1
+                    
+                    is_sg = False
+                    if data.get("< 6ft") in ["✅", "❌"]:
+                        is_sg = True
+                        if data["< 6ft"] == "✅": agg["sg_inside_6"] += 1
+                        
+                    if data.get("< 3ft") in ["✅", "❌"]:
+                        is_sg = True
+                        if data["< 3ft"] == "✅": agg["sg_inside_3"] += 1
+                        
+                    if data.get("Up & Down") in ["✅", "❌"]:
+                        is_sg = True
+                        if data["Up & Down"] == "✅": agg["sg_ud"] += 1
+                        
+                    if is_sg: agg["sg_total"] += 1
+                    
+                    if data.get("SGZ") and data["SGZ"] != "E":
+                        try: agg["sgz_score"] += int(data["SGZ"])
+                        except ValueError: pass
+                        
+                    if data.get("Lag Putting") == "✅": agg["lag_success"] += 1; agg["lag_total"] += 1
+                    elif data.get("Lag Putting") == "❌": agg["lag_total"] += 1
+                    
+                    putts = int(data.get("Putts") or 0)
+                    dist = int(data.get("Putt Dist (ft)") or 0)
+                    
+                    if putts > 0: agg["putts_total"] += putts
+                    if putts > 0 and dist > 0: agg["sg_putting"] += (get_expected_putts(dist) - putts)
+                
+                agg["sg_putting"] = round(agg["sg_putting"], 2)
+
+                update_payload = {
+                    "gross_score": st.session_state.get("cpc_fast_gross", current_stats.get('gross_score', 0)),
+                    "to_par": st.session_state.get("cpc_fast_par", current_stats.get('to_par', 0)),
+                    "mental_score": ms_val,
+                    "judgement_score": js_val,
+                    "cm_score": cm_val,
+                    "speed_logger_data": np_data
+                }
+                
+                update_payload.update(agg)
+                
+                try:
+                    supabase.table("round_stats").update(update_payload).eq("id", cid).execute()
+                    st.success(f"✅ All statistics for {st.session_state.active_r} have been successfully aggregated and saved to the vault.")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"Failed to save data to cloud: {e}")
+
+        # --- KEEP ORIGINAL TOURNAMENT DASHBOARD LOGIC HERE ---
+        elif st.session_state.workflow_step == "Tournament Dashboard":
             all_ts = st.session_state.shots_data[st.session_state.shots_data['Tournament'] == st.session_state.active_t]
             all_rs = load_all_tournament_stats(st.session_state.current_user, st.session_state.active_t)
             df_m = build_master_dataframe(all_ts, all_rs, mode="tournament")
