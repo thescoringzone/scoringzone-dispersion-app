@@ -743,7 +743,9 @@ else:
             st.markdown("#### 🚩 Round Setup")
             c1, c2, c3 = st.columns(3)
             sl_holes = c1.radio("Holes Played:", [9, 18], index=1, horizontal=True, key="cpc_sl_holes")
-            pr_gross = c2.number_input("Gross Score", min_value=20, max_value=150, value=current_stats.get('gross_score', 72 if sl_holes==18 else 36), step=1, key="cpc_fast_gross")
+            fetched_gross = current_stats.get('gross_score', 0)
+            default_gross = int(fetched_gross) if fetched_gross > 0 else (72 if sl_holes==18 else 36)
+            pr_gross = c2.number_input("Gross Score", min_value=0, max_value=150, value=default_gross, step=1, key="cpc_fast_gross")
             pr_to_par = c3.number_input("Score to Par (e.g., -2 or +3)", value=current_stats.get('to_par', 0), step=1, key="cpc_fast_par")
             st.divider()
 
