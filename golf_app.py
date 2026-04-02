@@ -291,7 +291,9 @@ def format_cell(logic_type, num, den, extra):
     if den == 0: 
         return "-"
     if logic_type == "driving": 
-        return f"{(num/den)*100:.0f}% ({extra})"
+        # Shows 75%(2) if penalties exist, otherwise just shows 75%
+        pen_str = f"({extra})" if extra > 0 else ""
+        return f"{(num/den)*100:.0f}%{pen_str}"
     if logic_type == "approach": 
         sign = "+" if num > 0 else ""
         return f"{sign}{num}({den})"
@@ -1049,14 +1051,27 @@ else:
                 valid_holes = {k: v for k, v in np_data.items() if v["Putts"] != ""}
                 
                 for h, data in valid_holes.items():
+                    # 1. Parse the penalty (int("+2") automatically becomes 2)
                     pen_val = 0
-                    if data.get("Penalty") in ["+1", "+2"]: pen_val = int(data["Penalty"])
+                    if data.get("Penalty") in ["+1", "+2"]: 
+                        pen_val = int(data["Penalty"])
                         
-                    if data.get("Driving") == "✅": agg["d_hit"] += 1; agg["d_tot"] += 1
-                    elif data.get("Driving") == "❌": agg["d_tot"] += 1; agg["d_pen"] += pen_val
+                    # 2. Evaluate Driver independently
+                    if data.get("Driving") in ["✅", "❌"]:
+                        if data["Driving"] == "✅": 
+                            agg["d_hit"] += 1; agg["d_tot"] += 1
+                        else: 
+                            agg["d_tot"] += 1
+                            agg["d_pen"] += pen_val
+                            pen_val = 0  # <--- CRITICAL: "Consume" the penalty so it doesn't double-count
                     
-                    if data.get("Other Club") == "✅": agg["o_hit"] += 1; agg["o_tot"] += 1
-                    elif data.get("Other Club") == "❌": agg["o_tot"] += 1; agg["o_pen"] += pen_val
+                    # 3. Evaluate Other Club independently
+                    if data.get("Other Club") in ["✅", "❌"]:
+                        if data["Other Club"] == "✅": 
+                            agg["o_hit"] += 1; agg["o_tot"] += 1
+                        else: 
+                            agg["o_tot"] += 1
+                            agg["o_pen"] += pen_val  # Only applies if Driver didn't already consume it!
                     
                     if data.get("GIR") == "✅": agg["gir"] += 1
                     if data.get("GIR < 5m") == "✅": agg["gir_less_5"] += 1
