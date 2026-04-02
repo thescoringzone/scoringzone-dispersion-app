@@ -15,7 +15,6 @@ from supabase import create_client
 st.set_page_config(page_title="The Score Code", layout="wide")
 
 st.markdown("""
-   st.markdown("""
     <style>
     /* 1. Import Premium Fonts from Google */
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;600&display=swap');
