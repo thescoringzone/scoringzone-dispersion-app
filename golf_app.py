@@ -722,9 +722,11 @@ else:
             existing_speed_data = current_stats.get('speed_logger_data')
             if existing_speed_data and isinstance(existing_speed_data, dict) and "1" in existing_speed_data:
                 if "cpc_notepad" not in st.session_state:
-                    # FIX: Backfill ALL new categories into old database records to prevent KeyErrors
+                    # --- FIX: HEAL OLD DATA ---
+                    # Loop through every hole and every required category
                     for h_key in existing_speed_data:
                         for cat in categories:
+                            # If a category (like 'Driver Penalty') is missing, add it as a blank string
                             if cat not in existing_speed_data[h_key]:
                                 existing_speed_data[h_key][cat] = ""
                                 
