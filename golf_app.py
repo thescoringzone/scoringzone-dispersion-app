@@ -716,7 +716,8 @@ else:
         cid = current_stats['id']
 
         if st.session_state.workflow_step == "Speed Logger":
-            categories = ["Driving", "Other Club", "Penalty", "151-200m", "101-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
+            # Separated Driver Penalty and Other Penalty
+            categories = ["Driving", "Driver Penalty", "Other Club", "Other Penalty", "151-200m", "101-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
 
             existing_speed_data = current_stats.get('speed_logger_data')
             if existing_speed_data and isinstance(existing_speed_data, dict) and "1" in existing_speed_data:
@@ -782,16 +783,20 @@ else:
                     # --- 🚀 LONG GAME ---
                     section_header("🚀 LONG GAME")
                     render_btn_row("Driving", ["✅", "❌"], "Driver off the tee")
+                    if active_data["Driving"] == "❌":
+                        render_btn_row("Driver Penalty", ["0", "+1", "+2", "+3", "+4"], "Penalty strokes with Driver")
+                    else:
+                        st.session_state.cpc_notepad[active_h]["Driver Penalty"] = ""
+                        
                     render_btn_row("Other Club", ["✅", "❌"], "Other club off the tee")
+                    if active_data["Other Club"] == "❌":
+                        render_btn_row("Other Penalty", ["0", "+1", "+2", "+3", "+4"], "Penalty strokes with Other Club")
+                    else:
+                        st.session_state.cpc_notepad[active_h]["Other Penalty"] = ""
                     
                     active_driver = active_data["Driving"] in ["✅", "❌"]
                     active_other = active_data["Other Club"] in ["✅", "❌"]
-                    
-                    if active_data["Driving"] == "❌" or active_data["Other Club"] == "❌":
-                        render_btn_row("Penalty", ["0", "+1", "+2"], "Penalty strokes off the tee")
-                    else:
-                        st.session_state.cpc_notepad[active_h]["Penalty"] = "" 
-                    
+            
                     if active_driver or active_other:
                         r_label = "OTT: Driver" if active_driver else "OTT: Others"
                         st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; color: gray;'><b>Plot your {r_label} Dispersion:</b></div>", unsafe_allow_html=True)
@@ -954,19 +959,28 @@ else:
 
                 st.write("<br>", unsafe_allow_html=True)
                 with st.expander("📊 View Full Scorecard", expanded=False):
+                    # We use a display-specific category list here to merge the penalties visually
+                    display_categories = ["Driving", "Other Club", "Penalty", "151-200m", "101-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
+
                     def calculate_totals(np):
                         t = {}
                         valid_holes = {k: v for k, v in np.items() if int(k) <= 18}
                         hp = sum(1 for h in valid_holes.values() if h.get("Putts", "") != "" and h.get("Putts", "") != "0")
                         
-                        for cat in categories:
+                        for cat in display_categories:
                             if cat in ["Driving", "Other Club", "< 6ft", "< 3ft", "Up & Down", "Lag Putting"]:
                                 hits = sum(1 for h in valid_holes.values() if h.get(cat, "") == "✅")
                                 tot = hits + sum(1 for h in valid_holes.values() if h.get(cat, "") == "❌")
                                 t[cat] = f"{int((hits/tot)*100)}% ({hits}/{tot})" if tot > 0 else "-"
                                 
                             elif cat == "Penalty":
-                                pen_total = sum(int(h.get(cat, 0)) for h in valid_holes.values() if h.get(cat, "") in ["+1", "+2", "1", "2"])
+                                # Sums both Driver and Other penalties for the total column
+                                pen_total = 0
+                                for h in valid_holes.values():
+                                    dp = h.get("Driver Penalty", "")
+                                    op = h.get("Other Penalty", "")
+                                    if dp in ["+1", "+2", "+3", "+4", "1", "2", "3", "4"]: pen_total += int(dp.replace("+", ""))
+                                    if op in ["+1", "+2", "+3", "+4", "1", "2", "3", "4"]: pen_total += int(op.replace("+", ""))
                                 t[cat] = f"{pen_total}" if pen_total > 0 else "-"
                                 
                             elif cat in ["151-200m", "101-150m", "50-100m"]:
@@ -975,7 +989,7 @@ else:
                                     v = h.get(cat, "")
                                     if v:
                                         sh += 1
-                                        if v != "E": sc += int(v) 
+                                        if v != "E": sc += int(v.replace("+", "")) 
                                 t[cat] = f"{'E' if sc == 0 else f'{sc:+}'} ({sh})" if sh > 0 else "-"
                                 
                             elif cat == "GIR":
@@ -993,7 +1007,7 @@ else:
                                     v = h.get(cat, "")
                                     if v:
                                         has_data = True
-                                        if v != "E": sgz_score += int(v)
+                                        if v != "E": sgz_score += int(v.replace("+", ""))
                                 t[cat] = f"{'+' if sgz_score > 0 else ''}{sgz_score}" if has_data else "-"
                                 
                             elif cat == "Putts":
@@ -1012,9 +1026,22 @@ else:
                         
                     t_dict = calculate_totals(st.session_state.cpc_notepad) 
                     df = pd.DataFrame(st.session_state.cpc_notepad)
+                    
+                    # Merge the two separated penalty columns back into one row for the visual display table
+                    pen_row = []
+                    for i in range(1, 19):
+                        dp = st.session_state.cpc_notepad[str(i)].get("Driver Penalty", "")
+                        op = st.session_state.cpc_notepad[str(i)].get("Other Penalty", "")
+                        dp_val = int(dp.replace("+", "")) if dp in ["+1", "+2", "+3", "+4", "1", "2", "3", "4"] else 0
+                        op_val = int(op.replace("+", "")) if op in ["+1", "+2", "+3", "+4", "1", "2", "3", "4"] else 0
+                        tot = dp_val + op_val
+                        pen_row.append(str(tot) if tot > 0 else "")
+                        
+                    df.loc["Penalty"] = pen_row
                     df = df[[str(i) for i in range(1, 19)]] 
                     df['Total/Avg'] = df.index.map(lambda x: t_dict.get(x, "-"))
-                    df = df.reindex(categories)
+                    df = df.reindex(display_categories)
+                    
                     css = "<style>.compact-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: sans-serif; text-align: center; } .compact-table th, .compact-table td { border: 1px solid #e0e0e0; padding: 6px 2px; text-align: center; } .compact-table th { background-color: #f0f2f6; color: #31333F; } .compact-table tbody th { text-align: left; padding-left: 8px; background-color: #ffffff; } .compact-table tr td:last-child { font-weight: bold; background-color: #f8f9fa; color: #1A237E; }</style>"
                     st.markdown(f"<div style='overflow-x: auto;'>{css}{df.to_html(classes='compact-table', escape=False)}</div>", unsafe_allow_html=True)
 
@@ -1047,34 +1074,52 @@ else:
                     "putts_total": 0, "sg_putting": 0.0
                 }
                 
-                valid_holes = {k: v for k, v in np_data.items() if v["Putts"] != ""}
+                # --- 💾 MASTER SAVE FUNCTION ---
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("💾 Save Full Round Data", type="primary", use_container_width=True):
+                np_data = st.session_state.cpc_notepad
                 
+                # 1. Initialize our aggregate trackers matching the DB columns
+                agg = {
+                    "d_hit": 0, "d_tot": 0, "d_pen": 0, 
+                    "o_hit": 0, "o_tot": 0, "o_pen": 0,
+                    "gir": 0, "gir_less_5": 0,
+                    "sg_total": 0, "sg_inside_6": 0, "sg_inside_3": 0, "sg_ud": 0, "sgz_score": 0,
+                    "lag_success": 0, "lag_total": 0,
+                    "putts_total": 0, "sg_putting": 0.0
+                }
+                
+                # 2. Save the hole if ANY data was entered (covers chip-ins / 0 putts)
+                valid_holes = {k: v for k, v in np_data.items() if any(val != "" for val in v.values())}
+                
+                # 3. Aggregate the data
                 for h, data in valid_holes.items():
-                    # 1. Parse the penalty (int("+2") automatically becomes 2)
-                    pen_val = 0
-                    if data.get("Penalty") in ["+1", "+2"]: 
-                        pen_val = int(data["Penalty"])
-                        
-                    # 2. Evaluate Driver independently
+                    
+                    # Evaluate Driver independently
                     if data.get("Driving") in ["✅", "❌"]:
                         if data["Driving"] == "✅": 
                             agg["d_hit"] += 1; agg["d_tot"] += 1
                         else: 
                             agg["d_tot"] += 1
-                            agg["d_pen"] += pen_val
-                            pen_val = 0  # <--- CRITICAL: "Consume" the penalty so it doesn't double-count
+                            dp = data.get("Driver Penalty", "")
+                            if dp in ["+1", "+2", "+3", "+4", "1", "2", "3", "4"]:
+                                agg["d_pen"] += int(dp.replace("+", ""))
                     
-                    # 3. Evaluate Other Club independently
+                    # Evaluate Other Club independently
                     if data.get("Other Club") in ["✅", "❌"]:
                         if data["Other Club"] == "✅": 
                             agg["o_hit"] += 1; agg["o_tot"] += 1
                         else: 
                             agg["o_tot"] += 1
-                            agg["o_pen"] += pen_val  # Only applies if Driver didn't already consume it!
+                            op = data.get("Other Penalty", "")
+                            if op in ["+1", "+2", "+3", "+4", "1", "2", "3", "4"]:
+                                agg["o_pen"] += int(op.replace("+", ""))
                     
+                    # Approach
                     if data.get("GIR") == "✅": agg["gir"] += 1
                     if data.get("GIR < 5m") == "✅": agg["gir_less_5"] += 1
                     
+                    # Short Game
                     is_sg = False
                     if data.get("< 6ft") in ["✅", "❌"]:
                         is_sg = True
@@ -1090,10 +1135,12 @@ else:
                         
                     if is_sg: agg["sg_total"] += 1
                     
+                    # SGZ Score
                     if data.get("SGZ") and data["SGZ"] != "E":
-                        try: agg["sgz_score"] += int(data["SGZ"])
+                        try: agg["sgz_score"] += int(data["SGZ"].replace("+", ""))
                         except ValueError: pass
                         
+                    # Putting
                     if data.get("Lag Putting") == "✅": agg["lag_success"] += 1; agg["lag_total"] += 1
                     elif data.get("Lag Putting") == "❌": agg["lag_total"] += 1
                     
@@ -1103,8 +1150,10 @@ else:
                     if putts > 0: agg["putts_total"] += putts
                     if putts > 0 and dist > 0: agg["sg_putting"] += (get_expected_putts(dist) - putts)
                 
+                # Clean up float math for the database
                 agg["sg_putting"] = round(agg["sg_putting"], 2)
 
+                # 4. Construct the final payload for Supabase
                 update_payload = {
                     "gross_score": st.session_state.get(f"cpc_fast_gross_{cid}", current_stats.get('gross_score', 0)),
                     "to_par": st.session_state.get(f"cpc_fast_par_{cid}", current_stats.get('to_par', 0)),
@@ -1116,6 +1165,7 @@ else:
                 
                 update_payload.update(agg)
                 
+                # 5. Execute Database Update
                 try:
                     supabase.table("round_stats").update(update_payload).eq("id", cid).execute()
                     st.success(f"✅ All statistics for {st.session_state.active_r} have been successfully aggregated and saved to the vault.")
