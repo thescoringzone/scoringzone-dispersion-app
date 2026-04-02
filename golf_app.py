@@ -774,25 +774,31 @@ else:
                         if subtext: cols[0].markdown(f"<div style='margin-top: 2px; line-height: 1.1;'><b>{category}</b><br><span style='font-size: 0.7em; color: gray;'>{subtext}</span></div>", unsafe_allow_html=True)
                         else: cols[0].markdown(f"<div style='margin-top: 8px;'><b>{category}</b></div>", unsafe_allow_html=True)
                         for i, opt in enumerate(options):
-                            is_selected = st.session_state.cpc_notepad[active_h][category] == str(opt)
+                            # CHANGE THIS LINE TO USE .get()
+                            is_selected = st.session_state.cpc_notepad[active_h].get(category, "") == str(opt)
+                            
                             btn_type = "primary" if is_selected else "secondary"
                             if cols[i+1].button(str(opt), key=f"cpc_{active_h}_{category}_{opt}_{cid}", type=btn_type, use_container_width=True, disabled=disabled):
-                                if is_selected: st.session_state.cpc_notepad[active_h][category] = ""
-                                else: st.session_state.cpc_notepad[active_h][category] = str(opt)
-                                if category == "GIR" and st.session_state.cpc_notepad[active_h]["GIR"] == "":
+                                # ALSO USE SETTING LOGIC SAFELY
+                                st.session_state.cpc_notepad[active_h][category] = "" if is_selected else str(opt)
+                                
+                                if category == "GIR" and st.session_state.cpc_notepad[active_h].get("GIR") == "":
                                     st.session_state.cpc_notepad[active_h]["GIR < 5m"] = ""
                                 st.rerun(scope="fragment")
 
                     # --- 🚀 LONG GAME ---
                     section_header("🚀 LONG GAME")
                     render_btn_row("Driving", ["✅", "❌"], "Driver off the tee")
-                    if active_data["Driving"] == "❌":
+
+                    # Use .get() here to prevent the crash on line 789/790
+                    if active_data.get("Driving") == "❌":
                         render_btn_row("Driver Penalty", ["0", "+1", "+2", "+3", "+4"], "Penalty strokes with Driver")
                     else:
+                        # Safely set the key even if it didn't exist before
                         st.session_state.cpc_notepad[active_h]["Driver Penalty"] = ""
                         
                     render_btn_row("Other Club", ["✅", "❌"], "Other club off the tee")
-                    if active_data["Other Club"] == "❌":
+                    if active_data.get("Other Club") == "❌":
                         render_btn_row("Other Penalty", ["0", "+1", "+2", "+3", "+4"], "Penalty strokes with Other Club")
                     else:
                         st.session_state.cpc_notepad[active_h]["Other Penalty"] = ""
