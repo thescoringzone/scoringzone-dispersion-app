@@ -568,7 +568,25 @@ else:
         raw_stats = load_all_stats(st.session_state.current_user)
         t_from_shots = st.session_state.shots_data['Tournament'].unique().tolist() if not st.session_state.shots_data.empty else []
         t_from_stats = [s['tournament'] for s in raw_stats] if raw_stats else []
-        all_t = sorted(list(set(t_from_shots + t_from_stats)))
+        unique_t = list(set(t_from_shots + t_from_stats))
+        
+        # RECENT SORTING FIX: Check max database IDs for each tournament
+        t_recency = {}
+        for t in unique_t:
+            max_id = 0
+            t_s = [s for s in raw_stats if s['tournament'] == t]
+            if t_s: max_id = max(s['id'] for s in t_s)
+            
+            if not st.session_state.shots_data.empty:
+                df_t = st.session_state.shots_data[st.session_state.shots_data['Tournament'] == t]
+                if not df_t.empty:
+                    max_shot_id = df_t['id'].max()
+                    max_id = max(max_id, max_shot_id)
+                    
+            t_recency[t] = max_id
+            
+        # Sort tournaments based on the max ID descending (Highest ID = most recent)
+        all_t = sorted(unique_t, key=lambda x: t_recency.get(x, 0), reverse=True)
         
         if all_t:
             cols = st.columns(4)
@@ -596,12 +614,17 @@ else:
                     st.session_state.active_r = r_name
                     st.session_state.workflow_step = "Speed Logger"
                     st.session_state.page = "Data Entry"
+                    
+                    if "cpc_notepad" in st.session_state: del st.session_state["cpc_notepad"]
+                    if "cpc_hole" in st.session_state: del st.session_state["cpc_hole"]
+                        
                     st.rerun()
                     
         st.divider()
         st.subheader("Tournament Tools")
         if st.button("📊 View Tournament Dashboard", use_container_width=True):
-            st.session_state.workflow_step = "Master Dashboard"
+            # NAVIGATION FIX: Changed 'Master Dashboard' to 'Tournament Dashboard'
+            st.session_state.workflow_step = "Tournament Dashboard"
             st.session_state.page = "Data Entry"
             st.rerun()
             
@@ -702,11 +725,16 @@ else:
 
     # --- PAGE: DATA ENTRY ---
     elif st.session_state.page == "Data Entry":
-        st.title(f"{st.session_state.active_t} - {st.session_state.active_r}")
         
         steps = ["Speed Logger", "Tournament Dashboard"] 
         selected_step = st.radio("Phase:", steps, horizontal=True, index=steps.index(st.session_state.workflow_step) if st.session_state.workflow_step in steps else 0)
         
+        # DYNAMIC TITLE FIX
+        if selected_step == "Tournament Dashboard":
+            st.title(f"{st.session_state.active_t} - Dashboard")
+        else:
+            st.title(f"{st.session_state.active_t} - {st.session_state.active_r}")
+            
         if selected_step != st.session_state.workflow_step:
             st.session_state.workflow_step = selected_step
             st.rerun()
