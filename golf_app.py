@@ -715,18 +715,16 @@ else:
         cid = current_stats['id']
 
         if st.session_state.workflow_step == "Speed Logger":
-            # PERFECTLY SYNCED CATEGORY NAMES
             categories = ["Driving", "Other Club", "Penalty", "151-200m", "101-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
 
             existing_speed_data = current_stats.get('speed_logger_data')
             if existing_speed_data and isinstance(existing_speed_data, dict) and "1" in existing_speed_data:
                 if "cpc_notepad" not in st.session_state:
-                    # FIX: Backfill any missing categories (like "Penalty" or "< 3ft") into old database records
+                    # Backfill missing keys for older database saves
                     for h_key in existing_speed_data:
                         for cat in categories:
                             if cat not in existing_speed_data[h_key]:
                                 existing_speed_data[h_key][cat] = ""
-                                
                     st.session_state.cpc_notepad = existing_speed_data
                     st.session_state.cpc_hole = 1
             else:
@@ -738,8 +736,9 @@ else:
             c1, c2 = st.columns(2)
             fetched_gross = current_stats.get('gross_score', 0)
             default_gross = int(fetched_gross) if fetched_gross > 0 else 72
-            pr_gross = c1.number_input("Gross Score", min_value=0, max_value=150, value=default_gross, step=1, key="cpc_fast_gross")
-            pr_to_par = c2.number_input("Score to Par (e.g., -2 or +3)", value=current_stats.get('to_par', 0), step=1, key="cpc_fast_par")
+            # BUG FIX: Attached CID to keys to prevent Round state bleed
+            pr_gross = c1.number_input("Gross Score", min_value=0, max_value=150, value=default_gross, step=1, key=f"cpc_fast_gross_{cid}")
+            pr_to_par = c2.number_input("Score to Par (e.g., -2 or +3)", value=current_stats.get('to_par', 0), step=1, key=f"cpc_fast_par_{cid}")
             st.divider()
 
             @st.fragment
@@ -754,13 +753,13 @@ else:
                 with st.container(border=True):
                     col_prev, col_curr, col_next = st.columns([1, 2, 1])
                     with col_prev:
-                        if st.button("⬅️ Prev", key="cpc_top_prev", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
+                        if st.button("⬅️ Prev", key=f"cpc_top_prev_{active_h}_{cid}", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
                             st.session_state.cpc_hole -= 1
                             st.rerun(scope="fragment")
                     with col_curr:
                         st.markdown(f"<h3 style='text-align: center; margin-top: 0px; margin-bottom: 0px;'>⛳ Hole {st.session_state.cpc_hole}</h3>", unsafe_allow_html=True)
                     with col_next:
-                        if st.button("Next ➡️", key="cpc_top_next", use_container_width=True, disabled=(st.session_state.cpc_hole == 18 or not can_proceed)):
+                        if st.button("Next ➡️", key=f"cpc_top_next_{active_h}_{cid}", use_container_width=True, disabled=(st.session_state.cpc_hole == 18 or not can_proceed)):
                             st.session_state.cpc_hole += 1
                             st.rerun(scope="fragment")
                     slim_divider()
@@ -772,7 +771,7 @@ else:
                         for i, opt in enumerate(options):
                             is_selected = st.session_state.cpc_notepad[active_h][category] == str(opt)
                             btn_type = "primary" if is_selected else "secondary"
-                            if cols[i+1].button(str(opt), key=f"cpc_{active_h}_{category}_{opt}", type=btn_type, use_container_width=True, disabled=disabled):
+                            if cols[i+1].button(str(opt), key=f"cpc_{active_h}_{category}_{opt}_{cid}", type=btn_type, use_container_width=True, disabled=disabled):
                                 if is_selected: st.session_state.cpc_notepad[active_h][category] = ""
                                 else: st.session_state.cpc_notepad[active_h][category] = str(opt)
                                 if category == "GIR" and st.session_state.cpc_notepad[active_h]["GIR"] == "":
@@ -787,11 +786,10 @@ else:
                     active_driver = active_data["Driving"] in ["✅", "❌"]
                     active_other = active_data["Other Club"] in ["✅", "❌"]
                     
-                    # Penalty Logic
                     if active_data["Driving"] == "❌" or active_data["Other Club"] == "❌":
                         render_btn_row("Penalty", ["0", "+1", "+2"], "Penalty strokes off the tee")
                     else:
-                        st.session_state.cpc_notepad[active_h]["Penalty"] = "" # Reset if they change it back to fairways hit
+                        st.session_state.cpc_notepad[active_h]["Penalty"] = "" 
                     
                     if active_driver or active_other:
                         r_label = "OTT: Driver" if active_driver else "OTT: Others"
@@ -803,11 +801,9 @@ else:
                             (st.session_state.shots_data['Range'] == r_label)
                         ]
                         
-                        # SCROLL FIX: Key is strictly tied to the hole and label, not the length of the dataframe!
-                        val = streamlit_image_coordinates(create_tee_image(df_v, r_label), key=f"img_{r_label}_{active_h}_static")
+                        val = streamlit_image_coordinates(create_tee_image(df_v, r_label), key=f"img_{r_label}_{active_h}_static_{cid}")
                         
-                        # Use a session state tracker to prevent infinite reruns on static keys
-                        click_tracker_key = f"last_click_{r_label}_{active_h}"
+                        click_tracker_key = f"last_click_{r_label}_{active_h}_{cid}"
                         if val and val != st.session_state.get(click_tracker_key):
                             st.session_state[click_tracker_key] = val
                             px, py = val['x'], val['y']
@@ -820,34 +816,35 @@ else:
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
                             st.rerun(scope="fragment")
 
-                        if not df_v.empty and st.button(f"Undo Last Tee Shot", key=f"un_tee_{active_h}"):
+                        if not df_v.empty and st.button(f"Undo Last Tee Shot", key=f"un_tee_{active_h}_{cid}"):
                             supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
-                            st.session_state[click_tracker_key] = None # Reset tracker
+                            st.session_state[click_tracker_key] = None 
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
                             st.rerun(scope="fragment")
 
                     slim_divider()
 
-                    
                     # --- 🎯 SCORING ZONE ---
                     section_header("🎯 SCORING ZONE")
                     
-                    # FIX: Prevent the dropdown from wiping data by defaulting to the saved value!
                     saved_sz = "Select Scoring Zone Shot"
                     for rng in ["50-100m", "101-150m", "151-200m"]:
                         if active_data.get(rng, "") != "":
                             saved_sz = rng
                             break
                             
-                    sz_dist = st.selectbox("Approach Distance Range:", ["Select Scoring Zone Shot", "50-100m", "101-150m", "151-200m"], index=["Select Scoring Zone Shot", "50-100m", "101-150m", "151-200m"].index(saved_sz), key=f"sz_sel_{active_h}")
+                    sz_dist = st.selectbox(
+                        "Approach Distance Range:", 
+                        ["Select Scoring Zone Shot", "50-100m", "101-150m", "151-200m"], 
+                        index=["Select Scoring Zone Shot", "50-100m", "101-150m", "151-200m"].index(saved_sz), 
+                        key=f"sz_sel_{active_h}_{cid}"
+                    )
                     
-                    # Only clear other ranges if the user actually changed the dropdown
                     if sz_dist != "Select Scoring Zone Shot":
                         for rng in ["50-100m", "101-150m", "151-200m"]:
                             if rng != sz_dist:
                                 st.session_state.cpc_notepad[active_h][rng] = ""
                     else:
-                        # User selected "Select..." intentionally to clear the hole's approach data
                         for rng in ["50-100m", "101-150m", "151-200m"]:
                             st.session_state.cpc_notepad[active_h][rng] = ""
                             
@@ -863,9 +860,8 @@ else:
                             (st.session_state.shots_data['Range'] == r_label)
                         ]
                         
-                        # SCROLL FIX: Static key for Approach chart
-                        sz_val = streamlit_image_coordinates(create_target_image(df_sz, r_label), key=f"img_sz_{active_h}_{r_label}_static")
-                        sz_click_tracker = f"last_sz_click_{r_label}_{active_h}"
+                        sz_val = streamlit_image_coordinates(create_target_image(df_sz, r_label), key=f"img_sz_{active_h}_{r_label}_static_{cid}")
+                        sz_click_tracker = f"last_sz_click_{r_label}_{active_h}_{cid}"
                         
                         if sz_val and sz_val != st.session_state.get(sz_click_tracker):
                             st.session_state[sz_click_tracker] = sz_val
@@ -878,21 +874,18 @@ else:
                             # 1. Save new shot to DB
                             supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Round": st.session_state.active_r, "Range": r_label, "X": x_m, "Y": y_m}).execute()
                             
-                            # 2. ACCURATE LIVE SCORE MATH (Sums all dots)
-                            total_score = 0
-                            # Add existing shots
-                            for _, row in df_sz.iterrows():
-                                d_exist = np.sqrt(row['X']**2 + row['Y']**2)
-                                if d_exist <= rb: total_score += -1
-                                elif d_exist <= rp: total_score += 0
-                                else: total_score += 1
-                            # Add the shot just clicked
-                            d_new = np.sqrt(x_m**2 + y_m**2)
-                            if d_new <= rb: total_score += -1
-                            elif d_new <= rp: total_score += 0
-                            else: total_score += 1
+                            # 2. BUG FIX: Accumulate score directly in the notepad, bypassing the whole-round dataframe
+                            current_val = active_data.get(sz_dist, "")
+                            if current_val in ["", "E"]: current_int = 0
+                            else: current_int = int(current_val)
                             
-                            # Convert sum to proper string format
+                            d_new = np.sqrt(x_m**2 + y_m**2)
+                            if d_new <= rb: shot_score = -1
+                            elif d_new <= rp: shot_score = 0
+                            else: shot_score = 1
+                            
+                            total_score = current_int + shot_score
+                            
                             if total_score == 0: final_score_str = "E"
                             elif total_score > 0: final_score_str = f"+{total_score}"
                             else: final_score_str = str(total_score)
@@ -902,11 +895,12 @@ else:
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
                             st.rerun(scope="fragment")
                             
-                        if not df_sz.empty and st.button(f"Undo Last Approach", key=f"un_sz_{active_h}"):
+                        if not df_sz.empty and st.button(f"Undo Last Approach", key=f"un_sz_{active_h}_{cid}"):
                             supabase.table("shots").delete().eq("id", int(df_sz.iloc[-1]['id'])).execute()
-                            st.session_state[sz_click_tracker] = None # Reset tracker
+                            st.session_state[sz_click_tracker] = None 
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
-                            st.session_state.cpc_notepad[active_h][sz_dist] = "" # Require re-click to recalculate
+                            # Note: Undoing wipes the hole's score string so you can restart cleanly
+                            st.session_state.cpc_notepad[active_h][sz_dist] = "" 
                             st.rerun(scope="fragment")
 
                     render_btn_row("GIR", ["✅"])
@@ -931,11 +925,11 @@ else:
                         c_dist, c_putts = st.columns([3, 2])
                         c_dist.caption("1st Putt Distance (ft)")
                         current_dist = int(active_data["Putt Dist (ft)"]) if active_data["Putt Dist (ft)"] != "" else 0
-                        new_dist = c_dist.slider(f"Dist_Hole_{active_h}", 0, 100, current_dist, key=f"dist_{active_h}", label_visibility="collapsed")
+                        new_dist = c_dist.slider(f"Dist_Hole_{active_h}_{cid}", 0, 100, current_dist, key=f"dist_{active_h}_{cid}", label_visibility="collapsed")
                         
                         c_putts.caption("Putts")
                         current_putts = int(active_data["Putts"]) if active_data["Putts"] != "" else 0
-                        new_putts = c_putts.radio(f"Putts_Hole_{active_h}", [0, 1, 2, 3, 4], index=current_putts, horizontal=True, key=f"putts_{active_h}", label_visibility="collapsed")
+                        new_putts = c_putts.radio(f"Putts_Hole_{active_h}_{cid}", [0, 1, 2, 3, 4], index=current_putts, horizontal=True, key=f"putts_{active_h}_{cid}", label_visibility="collapsed")
                         
                         if new_dist != current_dist or new_putts != current_putts:
                             st.session_state.cpc_notepad[active_h]["Putt Dist (ft)"] = str(new_dist)
@@ -949,11 +943,11 @@ else:
                     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
                     b_col_prev, b_col_curr, b_col_next = st.columns([1, 2, 1])
                     with b_col_prev:
-                        if st.button("⬅️ Prev", key="bot_prev_cpc", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
+                        if st.button("⬅️ Prev", key=f"bot_prev_cpc_{active_h}_{cid}", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
                             st.session_state.cpc_hole -= 1
                             st.rerun(scope="fragment")
                     with b_col_next:
-                        if st.button("Next ➡️", key="bot_next_cpc", use_container_width=True, disabled=(st.session_state.cpc_hole == 18 or not can_proceed)):
+                        if st.button("Next ➡️", key=f"bot_next_cpc_{active_h}_{cid}", use_container_width=True, disabled=(st.session_state.cpc_hole == 18 or not can_proceed)):
                             st.session_state.cpc_hole += 1
                             st.rerun(scope="fragment")
 
@@ -962,7 +956,6 @@ else:
                     def calculate_totals(np):
                         t = {}
                         valid_holes = {k: v for k, v in np.items() if int(k) <= 18}
-                        # Use .get() safely for putts
                         hp = sum(1 for h in valid_holes.values() if h.get("Putts", "") != "" and h.get("Putts", "") != "0")
                         
                         for cat in categories:
@@ -972,11 +965,10 @@ else:
                                 t[cat] = f"{int((hits/tot)*100)}% ({hits}/{tot})" if tot > 0 else "-"
                                 
                             elif cat == "Penalty":
-                                # Safely assumes 0 if the 'Penalty' key is missing from old rounds
                                 pen_total = sum(int(h.get(cat, 0)) for h in valid_holes.values() if h.get(cat, "") in ["+1", "+2", "1", "2"])
                                 t[cat] = f"{pen_total}" if pen_total > 0 else "-"
                                 
-                            elif cat in ["151-200m", "101-150m", "50-100m"]: # FIXED STRINGS
+                            elif cat in ["151-200m", "101-150m", "50-100m"]:
                                 sc, sh = 0, 0
                                 for h in valid_holes.values():
                                     v = h.get(cat, "")
@@ -1025,7 +1017,6 @@ else:
                     css = "<style>.compact-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: sans-serif; text-align: center; } .compact-table th, .compact-table td { border: 1px solid #e0e0e0; padding: 6px 2px; text-align: center; } .compact-table th { background-color: #f0f2f6; color: #31333F; } .compact-table tbody th { text-align: left; padding-left: 8px; background-color: #ffffff; } .compact-table tr td:last-child { font-weight: bold; background-color: #f8f9fa; color: #1A237E; }</style>"
                     st.markdown(f"<div style='overflow-x: auto;'>{css}{df.to_html(classes='compact-table', escape=False)}</div>", unsafe_allow_html=True)
 
-            # Trigger Fragment
             render_speed_logger()
 
             # --- 🧠 POST-ROUND MENTAL REVIEW ---
@@ -1058,7 +1049,6 @@ else:
                 valid_holes = {k: v for k, v in np_data.items() if v["Putts"] != ""}
                 
                 for h, data in valid_holes.items():
-                    # Parse penalties
                     pen_val = 0
                     if data.get("Penalty") in ["+1", "+2"]: pen_val = int(data["Penalty"])
                         
@@ -1102,8 +1092,8 @@ else:
                 agg["sg_putting"] = round(agg["sg_putting"], 2)
 
                 update_payload = {
-                    "gross_score": st.session_state.get("cpc_fast_gross", current_stats.get('gross_score', 0)),
-                    "to_par": st.session_state.get("cpc_fast_par", current_stats.get('to_par', 0)),
+                    "gross_score": st.session_state.get(f"cpc_fast_gross_{cid}", current_stats.get('gross_score', 0)),
+                    "to_par": st.session_state.get(f"cpc_fast_par_{cid}", current_stats.get('to_par', 0)),
                     "mental_score": ms_val,
                     "judgement_score": js_val,
                     "cm_score": cm_val,
