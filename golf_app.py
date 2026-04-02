@@ -736,6 +736,12 @@ else:
             existing_speed_data = current_stats.get('speed_logger_data')
             if existing_speed_data and isinstance(existing_speed_data, dict) and "1" in existing_speed_data:
                 if "cpc_notepad" not in st.session_state:
+                    # FIX: Backfill any missing categories (like "Penalty" or "< 3ft") into old database records
+                    for h_key in existing_speed_data:
+                        for cat in categories:
+                            if cat not in existing_speed_data[h_key]:
+                                existing_speed_data[h_key][cat] = ""
+                                
                     st.session_state.cpc_notepad = existing_speed_data
                     st.session_state.cpc_hole = 1
             else:
@@ -959,47 +965,49 @@ else:
                     def calculate_totals(np):
                         t = {}
                         valid_holes = {k: v for k, v in np.items() if int(k) <= 18}
-                        hp = sum(1 for h in valid_holes.values() if h["Putts"] != "" and h["Putts"] != "0")
+                        # Use .get() safely for putts
+                        hp = sum(1 for h in valid_holes.values() if h.get("Putts", "") != "" and h.get("Putts", "") != "0")
                         
                         for cat in categories:
                             if cat in ["Driving", "Other Club", "< 6ft", "< 3ft", "Up & Down", "Lag Putting"]:
-                                hits = sum(1 for h in valid_holes.values() if h[cat] == "✅")
-                                tot = hits + sum(1 for h in valid_holes.values() if h[cat] == "❌")
+                                hits = sum(1 for h in valid_holes.values() if h.get(cat, "") == "✅")
+                                tot = hits + sum(1 for h in valid_holes.values() if h.get(cat, "") == "❌")
                                 t[cat] = f"{int((hits/tot)*100)}% ({hits}/{tot})" if tot > 0 else "-"
                                 
                             elif cat == "Penalty":
-                                pen_total = sum(int(h[cat]) for h in valid_holes.values() if h[cat] in ["+1", "+2", "1", "2"])
+                                # Safely assumes 0 if the 'Penalty' key is missing from old rounds
+                                pen_total = sum(int(h.get(cat, 0)) for h in valid_holes.values() if h.get(cat, "") in ["+1", "+2", "1", "2"])
                                 t[cat] = f"{pen_total}" if pen_total > 0 else "-"
                                 
                             elif cat in ["150-200m", "100-150m", "50-100m"]:
                                 sc, sh = 0, 0
                                 for h in valid_holes.values():
-                                    v = h[cat]
+                                    v = h.get(cat, "")
                                     if v:
                                         sh += 1
-                                        if v != "E": sc += int(v) # Dynamic parsing of sums
+                                        if v != "E": sc += int(v) 
                                 t[cat] = f"{'E' if sc == 0 else f'{sc:+}'} ({sh})" if sh > 0 else "-"
                                 
                             elif cat == "GIR":
-                                hits = sum(1 for h in valid_holes.values() if h[cat] == "✅")
+                                hits = sum(1 for h in valid_holes.values() if h.get(cat, "") == "✅")
                                 t[cat] = f"{int((hits/hp)*100)}% ({hits}/{hp})" if hp > 0 else "-"
                                 
                             elif cat == "GIR < 5m":
-                                hits = sum(1 for h in valid_holes.values() if h[cat] == "✅")
+                                hits = sum(1 for h in valid_holes.values() if h.get(cat, "") == "✅")
                                 t[cat] = f"{hits}" if hits > 0 else "-"
                                 
                             elif cat == "SGZ":
                                 sgz_score = 0
                                 has_data = False
                                 for h in valid_holes.values():
-                                    v = h[cat]
+                                    v = h.get(cat, "")
                                     if v:
                                         has_data = True
                                         if v != "E": sgz_score += int(v)
                                 t[cat] = f"{'+' if sgz_score > 0 else ''}{sgz_score}" if has_data else "-"
                                 
                             elif cat == "Putts":
-                                p = sum(int(h[cat]) for h in valid_holes.values() if h[cat] != "")
+                                p = sum(int(h.get(cat, 0)) for h in valid_holes.values() if h.get(cat, "") != "")
                                 total_sg = 0.0
                                 for h in valid_holes.values():
                                     d = int(h.get("Putt Dist (ft)") or 0)
