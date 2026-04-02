@@ -13,45 +13,36 @@ from supabase import create_client
 
 st.markdown("""
     <style>
+    /* 1. Import Premium Fonts from Google */
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;600&display=swap');
 
+    /* 2. Apply crisp Montserrat to general text */
     html, body, [class*="css"], [class*="st-"], .stMarkdown, .stText { font-family: 'Montserrat', sans-serif !important; }
     .material-symbols-rounded, .material-icons, [data-testid="stIconMaterial"], [class*="stIcon"] { font-family: 'Material Symbols Rounded', sans-serif !important; }
     h1, h2, h3, h4, h5, h6 { font-family: 'Playfair Display', serif !important; font-weight: 600 !important; }
 
+    /* 5. Keep our larger slider thumb styling */
     div[data-baseweb="slider"] div[role="slider"] { height: 24px !important; width: 24px !important; border-radius: 50% !important; box-shadow: 0 0 4px rgba(0,0,0,0.3) !important; }
     div[data-baseweb="slider"] div[data-testid="stThumbValue"] { font-size: 16px !important; font-weight: bold !important; transform: translateY(-8px) !important; font-family: 'Montserrat', sans-serif !important; }
 
-    /* MOBILE OPTIMIZATIONS: Strict Horizontal Locking */
+    /* 6. MOBILE OPTIMIZATIONS: Force speed logger columns to stay horizontal on phones */
     @media (max-width: 768px) {
-        /* Force rows with our anchor to stay horizontal */
-        div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] {
+        div[data-testid="stHorizontalBlock"] {
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            align-items: center !important;
-            gap: 2px !important;
+            overflow-x: hidden !important;
         }
-        /* Shrink internal padding to make buttons fit */
-        div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
             min-width: 0 !important;
-            width: auto !important;
             padding: 0 2px !important;
         }
-        /* Shrink the actual button text so it doesn't overflow */
-        div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] button {
-            min-height: 35px !important;
+        div[data-testid="stHorizontalBlock"] button {
             padding: 0px !important;
+            min-height: 35px !important;
         }
-        div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] button p {
-            font-size: 12px !important;
+        div[data-testid="stHorizontalBlock"] button p {
+            font-size: 11px !important;
         }
-        /* Label Column sizing vs Button sizing */
-        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child { flex: 2.5 1 0% !important; }
-        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:not(:first-child) { flex: 1 1 0% !important; }
-        
-        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) { flex: 2 1 0% !important; }
-        div[data-testid="element-container"]:has(.putt-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) { flex: 3 1 0% !important; }
-        div[data-testid="element-container"]:has(.putt-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) { flex: 2 1 0% !important; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -730,8 +721,8 @@ else:
         cid = current_stats['id']
 
         if st.session_state.workflow_step == "Speed Logger":
-            # Added "Penalty" to track the missed fairway strokes
-            categories = ["Driving", "Other Club", "Penalty", "150-200m", "100-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
+            # PERFECTLY SYNCED CATEGORY NAMES
+            categories = ["Driving", "Other Club", "Penalty", "151-200m", "101-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
 
             existing_speed_data = current_stats.get('speed_logger_data')
             if existing_speed_data and isinstance(existing_speed_data, dict) and "1" in existing_speed_data:
@@ -845,12 +836,28 @@ else:
 
                     slim_divider()
 
+                    
                     # --- 🎯 SCORING ZONE ---
                     section_header("🎯 SCORING ZONE")
-                    sz_dist = st.selectbox("Approach Distance Range:", ["Select Scoring Zone Shot", "50-100m", "101-150m", "151-200m"], key=f"sz_sel_{active_h}")
                     
+                    # FIX: Prevent the dropdown from wiping data by defaulting to the saved value!
+                    saved_sz = "Select Scoring Zone Shot"
                     for rng in ["50-100m", "101-150m", "151-200m"]:
-                        if rng != sz_dist: st.session_state.cpc_notepad[active_h][rng] = ""
+                        if active_data.get(rng, "") != "":
+                            saved_sz = rng
+                            break
+                            
+                    sz_dist = st.selectbox("Approach Distance Range:", ["Select Scoring Zone Shot", "50-100m", "101-150m", "151-200m"], index=["Select Scoring Zone Shot", "50-100m", "101-150m", "151-200m"].index(saved_sz), key=f"sz_sel_{active_h}")
+                    
+                    # Only clear other ranges if the user actually changed the dropdown
+                    if sz_dist != "Select Scoring Zone Shot":
+                        for rng in ["50-100m", "101-150m", "151-200m"]:
+                            if rng != sz_dist:
+                                st.session_state.cpc_notepad[active_h][rng] = ""
+                    else:
+                        # User selected "Select..." intentionally to clear the hole's approach data
+                        for rng in ["50-100m", "101-150m", "151-200m"]:
+                            st.session_state.cpc_notepad[active_h][rng] = ""
                             
                     if sz_dist != "Select Scoring Zone Shot":
                         r_label = sz_dist.replace("m", "") 
@@ -979,7 +986,7 @@ else:
                                 pen_total = sum(int(h.get(cat, 0)) for h in valid_holes.values() if h.get(cat, "") in ["+1", "+2", "1", "2"])
                                 t[cat] = f"{pen_total}" if pen_total > 0 else "-"
                                 
-                            elif cat in ["150-200m", "100-150m", "50-100m"]:
+                            elif cat in ["151-200m", "101-150m", "50-100m"]: # FIXED STRINGS
                                 sc, sh = 0, 0
                                 for h in valid_holes.values():
                                     v = h.get(cat, "")
