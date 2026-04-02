@@ -11,93 +11,47 @@ from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
 from supabase import create_client
 
-# --- 1. APP CONFIG, SECRETS & CSS ---
-st.set_page_config(page_title="The Score Code", layout="wide")
-
 st.markdown("""
     <style>
-    /* 1. Import Premium Fonts from Google */
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;600&display=swap');
 
-    /* 2. Apply crisp Montserrat to general text */
-    html, body, [class*="css"], [class*="st-"], .stMarkdown, .stText {
-        font-family: 'Montserrat', sans-serif !important;
-    }
-    
-    /* 3. PROTECT UI ICONS: Force Streamlit icons to keep their native font */
-    .material-symbols-rounded, .material-icons, [data-testid="stIconMaterial"], [class*="stIcon"] {
-        font-family: 'Material Symbols Rounded', sans-serif !important;
-    }
-    
-    /* 4. Apply sophisticated Playfair Display to all Headers and Titles */
-    h1, h2, h3, h4, h5, h6 {
-        font-family: 'Playfair Display', serif !important;
-        font-weight: 600 !important;
-    }
+    html, body, [class*="css"], [class*="st-"], .stMarkdown, .stText { font-family: 'Montserrat', sans-serif !important; }
+    .material-symbols-rounded, .material-icons, [data-testid="stIconMaterial"], [class*="stIcon"] { font-family: 'Material Symbols Rounded', sans-serif !important; }
+    h1, h2, h3, h4, h5, h6 { font-family: 'Playfair Display', serif !important; font-weight: 600 !important; }
 
-    /* 5. Keep our larger slider thumb styling */
-    div[data-baseweb="slider"] div[role="slider"] {
-        height: 24px !important;
-        width: 24px !important;
-        border-radius: 50% !important;
-        box-shadow: 0 0 4px rgba(0,0,0,0.3) !important;
-    }
-    
-    div[data-baseweb="slider"] div[data-testid="stThumbValue"] {
-        font-size: 16px !important;
-        font-weight: bold !important;
-        transform: translateY(-8px) !important; 
-        font-family: 'Montserrat', sans-serif !important;
-    }
+    div[data-baseweb="slider"] div[role="slider"] { height: 24px !important; width: 24px !important; border-radius: 50% !important; box-shadow: 0 0 4px rgba(0,0,0,0.3) !important; }
+    div[data-baseweb="slider"] div[data-testid="stThumbValue"] { font-size: 16px !important; font-weight: bold !important; transform: translateY(-8px) !important; font-family: 'Montserrat', sans-serif !important; }
 
-    /* 6. MOBILE OPTIMIZATIONS: Force speed logger columns to stay horizontal on phones */
+    /* MOBILE OPTIMIZATIONS: Strict Horizontal Locking */
     @media (max-width: 768px) {
-        /* Un-stack the columns for any row with our hidden anchor */
+        /* Force rows with our anchor to stay horizontal */
         div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] {
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 4px !important;
+            align-items: center !important;
+            gap: 2px !important;
         }
+        /* Shrink internal padding to make buttons fit */
         div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
             min-width: 0 !important;
             width: auto !important;
             padding: 0 2px !important;
         }
+        /* Shrink the actual button text so it doesn't overflow */
+        div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] button {
+            min-height: 35px !important;
+            padding: 0px !important;
+        }
+        div[data-testid="element-container"]:has(.mobile-keep-row) + div[data-testid="stHorizontalBlock"] button p {
+            font-size: 12px !important;
+        }
+        /* Label Column sizing vs Button sizing */
+        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child { flex: 2.5 1 0% !important; }
+        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:not(:first-child) { flex: 1 1 0% !important; }
         
-        /* A. Data Entry Button Rows */
-        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
-            flex: 2.8 1 0% !important; /* Keep category text wider */
-        }
-        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:not(:first-child) {
-            flex: 1.2 1 0% !important;
-        }
-        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] button {
-            padding: 0px 0px !important;
-            min-height: 32px !important;
-        }
-        div[data-testid="element-container"]:has(.btn-row) + div[data-testid="stHorizontalBlock"] button p {
-            font-size: 11px !important; /* Shrink button text slightly to fit */
-        }
-        
-        /* B. Navigation Rows (Prev / Hole / Next) */
-        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] {
-            align-items: center !important;
-        }
-        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1),
-        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) {
-            flex: 1 1 0% !important;
-        }
-        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) {
-            flex: 2 1 0% !important;
-        }
-        
-        /* C. Putting Row */
-        div[data-testid="element-container"]:has(.putt-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) {
-            flex: 3 1 0% !important;
-        }
-        div[data-testid="element-container"]:has(.putt-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) {
-            flex: 2 1 0% !important;
-        }
+        div[data-testid="element-container"]:has(.nav-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) { flex: 2 1 0% !important; }
+        div[data-testid="element-container"]:has(.putt-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) { flex: 3 1 0% !important; }
+        div[data-testid="element-container"]:has(.putt-row) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) { flex: 2 1 0% !important; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -764,7 +718,6 @@ else:
     elif st.session_state.page == "Data Entry":
         st.title(f"{st.session_state.active_t} - {st.session_state.active_r}")
         
-        # Simplified Navigation: We only need two phases now!
         steps = ["Speed Logger", "Tournament Dashboard"] 
         selected_step = st.radio("Phase:", steps, horizontal=True, index=steps.index(st.session_state.workflow_step) if st.session_state.workflow_step in steps else 0)
         
@@ -777,9 +730,9 @@ else:
         cid = current_stats['id']
 
         if st.session_state.workflow_step == "Speed Logger":
-            categories = ["Driving", "Other Club", "150-200m", "100-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
+            # Added "Penalty" to track the missed fairway strokes
+            categories = ["Driving", "Other Club", "Penalty", "150-200m", "100-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
 
-            # Load existing hole-by-hole data if it exists in the DB, otherwise initialize blank
             existing_speed_data = current_stats.get('speed_logger_data')
             if existing_speed_data and isinstance(existing_speed_data, dict) and "1" in existing_speed_data:
                 if "cpc_notepad" not in st.session_state:
@@ -791,12 +744,11 @@ else:
                     st.session_state.cpc_hole = 1
             
             st.markdown("#### 🚩 Round Setup")
-            c1, c2, c3 = st.columns(3)
-            sl_holes = c1.radio("Holes Played:", [9, 18], index=1, horizontal=True, key="cpc_sl_holes")
+            c1, c2 = st.columns(2)
             fetched_gross = current_stats.get('gross_score', 0)
-            default_gross = int(fetched_gross) if fetched_gross > 0 else (72 if sl_holes==18 else 36)
-            pr_gross = c2.number_input("Gross Score", min_value=0, max_value=150, value=default_gross, step=1, key="cpc_fast_gross")
-            pr_to_par = c3.number_input("Score to Par (e.g., -2 or +3)", value=current_stats.get('to_par', 0), step=1, key="cpc_fast_par")
+            default_gross = int(fetched_gross) if fetched_gross > 0 else 72
+            pr_gross = c1.number_input("Gross Score", min_value=0, max_value=150, value=default_gross, step=1, key="cpc_fast_gross")
+            pr_to_par = c2.number_input("Score to Par (e.g., -2 or +3)", value=current_stats.get('to_par', 0), step=1, key="cpc_fast_par")
             st.divider()
 
             @st.fragment
@@ -818,15 +770,14 @@ else:
                     with col_curr:
                         st.markdown(f"<h3 style='text-align: center; margin-top: 0px; margin-bottom: 0px;'>⛳ Hole {st.session_state.cpc_hole}</h3>", unsafe_allow_html=True)
                     with col_next:
-                        if st.button("Next ➡️", key="cpc_top_next", use_container_width=True, disabled=(st.session_state.cpc_hole == sl_holes or not can_proceed)):
+                        if st.button("Next ➡️", key="cpc_top_next", use_container_width=True, disabled=(st.session_state.cpc_hole == 18 or not can_proceed)):
                             st.session_state.cpc_hole += 1
                             st.rerun(scope="fragment")
                     slim_divider()
 
                     def render_btn_row(category, options, subtext=None, disabled=False):
                         st.markdown("<div class='mobile-keep-row btn-row' style='display:none;'></div>", unsafe_allow_html=True)
-                        cols = st.columns([2.8, 1.2, 1.2, 1.2, 1.2, 1.2])
-                        cols = st.columns([2.8, 1.2, 1.2, 1.2, 1.2, 1.2]) 
+                        cols = st.columns([2.8] + [1.2]*len(options)) 
                         if subtext: cols[0].markdown(f"<div style='margin-top: 2px; line-height: 1.1;'><b>{category}</b><br><span style='font-size: 0.7em; color: gray;'>{subtext}</span></div>", unsafe_allow_html=True)
                         else: cols[0].markdown(f"<div style='margin-top: 8px;'><b>{category}</b></div>", unsafe_allow_html=True)
                         for i, opt in enumerate(options):
@@ -847,6 +798,12 @@ else:
                     active_driver = active_data["Driving"] in ["✅", "❌"]
                     active_other = active_data["Other Club"] in ["✅", "❌"]
                     
+                    # Penalty Logic
+                    if active_data["Driving"] == "❌" or active_data["Other Club"] == "❌":
+                        render_btn_row("Penalty", ["0", "+1", "+2"], "Penalty strokes off the tee")
+                    else:
+                        st.session_state.cpc_notepad[active_h]["Penalty"] = "" # Reset if they change it back to fairways hit
+                    
                     if active_driver or active_other:
                         r_label = "OTT: Driver" if active_driver else "OTT: Others"
                         st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; color: gray;'><b>Plot your {r_label} Dispersion:</b></div>", unsafe_allow_html=True)
@@ -857,28 +814,26 @@ else:
                             (st.session_state.shots_data['Range'] == r_label)
                         ]
                         
-                        val = streamlit_image_coordinates(create_tee_image(df_v, r_label), key=f"img_{r_label}_{active_h}_{len(df_v)}")
+                        # SCROLL FIX: Key is strictly tied to the hole and label, not the length of the dataframe!
+                        val = streamlit_image_coordinates(create_tee_image(df_v, r_label), key=f"img_{r_label}_{active_h}_static")
                         
-                        if val:
+                        # Use a session state tracker to prevent infinite reruns on static keys
+                        click_tracker_key = f"last_click_{r_label}_{active_h}"
+                        if val and val != st.session_state.get(click_tracker_key):
+                            st.session_state[click_tracker_key] = val
                             px, py = val['x'], val['y']
                             y_min, y_max = (270, 320) if r_label == "OTT: Driver" else (220, 270)
                             x_m = round((px / 500.0) * 60 - 30, 2)
                             y_m = round(y_max - (py / 500.0) * 50, 2)
                             
-                            supabase.table("shots").insert({
-                                "User": st.session_state.current_user, 
-                                "Tournament": st.session_state.active_t, 
-                                "Round": st.session_state.active_r, 
-                                "Range": r_label, 
-                                "X": x_m, "Y": y_m
-                            }).execute()
-                            
+                            supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Round": st.session_state.active_r, "Range": r_label, "X": x_m, "Y": y_m}).execute()
                             st.toast(f"📍 {r_label} plotted!", icon="✅")
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
                             st.rerun(scope="fragment")
 
                         if not df_v.empty and st.button(f"Undo Last Tee Shot", key=f"un_tee_{active_h}"):
                             supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
+                            st.session_state[click_tracker_key] = None # Reset tracker
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
                             st.rerun(scope="fragment")
 
@@ -886,17 +841,16 @@ else:
 
                     # --- 🎯 SCORING ZONE ---
                     section_header("🎯 SCORING ZONE")
-                    sz_dist = st.selectbox("Approach Distance Range:", ["No Approach", "50-100m", "101-150m", "151-200m"], key=f"sz_sel_{active_h}")
+                    sz_dist = st.selectbox("Approach Distance Range:", ["Select Scoring Zone Shot", "50-100m", "101-150m", "151-200m"], key=f"sz_sel_{active_h}")
                     
                     for rng in ["50-100m", "101-150m", "151-200m"]:
-                        if rng != sz_dist:
-                            st.session_state.cpc_notepad[active_h][rng] = ""
+                        if rng != sz_dist: st.session_state.cpc_notepad[active_h][rng] = ""
                             
-                    if sz_dist != "No Approach":
+                    if sz_dist != "Select Scoring Zone Shot":
                         r_label = sz_dist.replace("m", "") 
                         current_sz_score = active_data[sz_dist]
                         if current_sz_score:
-                            st.info(f"**Current Score:** {current_sz_score} (Click chart to update)")
+                            st.info(f"**Current Accumulated Score:** {current_sz_score}")
                         
                         df_sz = st.session_state.shots_data[
                             (st.session_state.shots_data['Tournament'] == st.session_state.active_t) & 
@@ -904,37 +858,50 @@ else:
                             (st.session_state.shots_data['Range'] == r_label)
                         ]
                         
-                        sz_val = streamlit_image_coordinates(create_target_image(df_sz, r_label), key=f"img_sz_{active_h}_{len(df_sz)}")
+                        # SCROLL FIX: Static key for Approach chart
+                        sz_val = streamlit_image_coordinates(create_target_image(df_sz, r_label), key=f"img_sz_{active_h}_{r_label}_static")
+                        sz_click_tracker = f"last_sz_click_{r_label}_{active_h}"
                         
-                        if sz_val:
+                        if sz_val and sz_val != st.session_state.get(sz_click_tracker):
+                            st.session_state[sz_click_tracker] = sz_val
                             px, py = sz_val['x'], sz_val['y']
                             rb, rp = get_radii(r_label)
                             limit = rp + 2
                             x_m = round((px / 500.0) * (2 * limit) - limit, 2)
                             y_m = round(limit - (py / 500.0) * (2 * limit), 2)
                             
-                            d = np.sqrt(x_m**2 + y_m**2)
-                            if d <= rb: auto_score = "-1"
-                            elif d <= rp: auto_score = "E"
-                            else: auto_score = "+1"
+                            # 1. Save new shot to DB
+                            supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Round": st.session_state.active_r, "Range": r_label, "X": x_m, "Y": y_m}).execute()
                             
-                            supabase.table("shots").insert({
-                                "User": st.session_state.current_user, 
-                                "Tournament": st.session_state.active_t, 
-                                "Round": st.session_state.active_r, 
-                                "Range": r_label, 
-                                "X": x_m, "Y": y_m
-                            }).execute()
+                            # 2. ACCURATE LIVE SCORE MATH (Sums all dots)
+                            total_score = 0
+                            # Add existing shots
+                            for _, row in df_sz.iterrows():
+                                d_exist = np.sqrt(row['X']**2 + row['Y']**2)
+                                if d_exist <= rb: total_score += -1
+                                elif d_exist <= rp: total_score += 0
+                                else: total_score += 1
+                            # Add the shot just clicked
+                            d_new = np.sqrt(x_m**2 + y_m**2)
+                            if d_new <= rb: total_score += -1
+                            elif d_new <= rp: total_score += 0
+                            else: total_score += 1
                             
-                            st.session_state.cpc_notepad[active_h][sz_dist] = auto_score
-                            st.toast(f"📍 Approach scored as {auto_score}", icon="✅")
+                            # Convert sum to proper string format
+                            if total_score == 0: final_score_str = "E"
+                            elif total_score > 0: final_score_str = f"+{total_score}"
+                            else: final_score_str = str(total_score)
+                            
+                            st.session_state.cpc_notepad[active_h][sz_dist] = final_score_str
+                            st.toast(f"📍 Approach recorded. Total Score: {final_score_str}", icon="✅")
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
                             st.rerun(scope="fragment")
                             
                         if not df_sz.empty and st.button(f"Undo Last Approach", key=f"un_sz_{active_h}"):
                             supabase.table("shots").delete().eq("id", int(df_sz.iloc[-1]['id'])).execute()
+                            st.session_state[sz_click_tracker] = None # Reset tracker
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
-                            st.session_state.cpc_notepad[active_h][sz_dist] = "" 
+                            st.session_state.cpc_notepad[active_h][sz_dist] = "" # Require re-click to recalculate
                             st.rerun(scope="fragment")
 
                     render_btn_row("GIR", ["✅"])
@@ -983,15 +950,15 @@ else:
                             st.session_state.cpc_hole -= 1
                             st.rerun(scope="fragment")
                     with b_col_next:
-                        if st.button("Next ➡️", key="bot_next_cpc", use_container_width=True, disabled=(st.session_state.cpc_hole == sl_holes or not can_proceed)):
+                        if st.button("Next ➡️", key="bot_next_cpc", use_container_width=True, disabled=(st.session_state.cpc_hole == 18 or not can_proceed)):
                             st.session_state.cpc_hole += 1
                             st.rerun(scope="fragment")
 
                 st.write("<br>", unsafe_allow_html=True)
                 with st.expander("📊 View Full Scorecard", expanded=False):
-                    def calculate_totals(np, active_holes):
+                    def calculate_totals(np):
                         t = {}
-                        valid_holes = {k: v for k, v in np.items() if int(k) <= active_holes}
+                        valid_holes = {k: v for k, v in np.items() if int(k) <= 18}
                         hp = sum(1 for h in valid_holes.values() if h["Putts"] != "" and h["Putts"] != "0")
                         
                         for cat in categories:
@@ -1000,16 +967,17 @@ else:
                                 tot = hits + sum(1 for h in valid_holes.values() if h[cat] == "❌")
                                 t[cat] = f"{int((hits/tot)*100)}% ({hits}/{tot})" if tot > 0 else "-"
                                 
+                            elif cat == "Penalty":
+                                pen_total = sum(int(h[cat]) for h in valid_holes.values() if h[cat] in ["+1", "+2", "1", "2"])
+                                t[cat] = f"{pen_total}" if pen_total > 0 else "-"
+                                
                             elif cat in ["150-200m", "100-150m", "50-100m"]:
                                 sc, sh = 0, 0
                                 for h in valid_holes.values():
                                     v = h[cat]
                                     if v:
                                         sh += 1
-                                        if v == "-2": sc -= 2
-                                        elif v == "-1": sc -= 1
-                                        elif v == "+1": sc += 1
-                                        elif v == "+2": sc += 2
+                                        if v != "E": sc += int(v) # Dynamic parsing of sums
                                 t[cat] = f"{'E' if sc == 0 else f'{sc:+}'} ({sh})" if sh > 0 else "-"
                                 
                             elif cat == "GIR":
@@ -1044,9 +1012,9 @@ else:
                                 
                         return t
                         
-                    t_dict = calculate_totals(st.session_state.cpc_notepad, sl_holes) 
+                    t_dict = calculate_totals(st.session_state.cpc_notepad) 
                     df = pd.DataFrame(st.session_state.cpc_notepad)
-                    df = df[[str(i) for i in range(1, sl_holes + 1)]] 
+                    df = df[[str(i) for i in range(1, 19)]] 
                     df['Total/Avg'] = df.index.map(lambda x: t_dict.get(x, "-"))
                     df = df.reindex(categories)
                     css = "<style>.compact-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: sans-serif; text-align: center; } .compact-table th, .compact-table td { border: 1px solid #e0e0e0; padding: 6px 2px; text-align: center; } .compact-table th { background-color: #f0f2f6; color: #31333F; } .compact-table tbody th { text-align: left; padding-left: 8px; background-color: #ffffff; } .compact-table tr td:last-child { font-weight: bold; background-color: #f8f9fa; color: #1A237E; }</style>"
@@ -1074,7 +1042,8 @@ else:
                 np_data = st.session_state.cpc_notepad
                 
                 agg = {
-                    "d_hit": 0, "d_tot": 0, "o_hit": 0, "o_tot": 0,
+                    "d_hit": 0, "d_tot": 0, "d_pen": 0, 
+                    "o_hit": 0, "o_tot": 0, "o_pen": 0,
                     "gir": 0, "gir_less_5": 0,
                     "sg_total": 0, "sg_inside_6": 0, "sg_inside_3": 0, "sg_ud": 0, "sgz_score": 0,
                     "lag_success": 0, "lag_total": 0,
@@ -1084,11 +1053,15 @@ else:
                 valid_holes = {k: v for k, v in np_data.items() if v["Putts"] != ""}
                 
                 for h, data in valid_holes.items():
+                    # Parse penalties
+                    pen_val = 0
+                    if data.get("Penalty") in ["+1", "+2"]: pen_val = int(data["Penalty"])
+                        
                     if data.get("Driving") == "✅": agg["d_hit"] += 1; agg["d_tot"] += 1
-                    elif data.get("Driving") == "❌": agg["d_tot"] += 1
+                    elif data.get("Driving") == "❌": agg["d_tot"] += 1; agg["d_pen"] += pen_val
                     
                     if data.get("Other Club") == "✅": agg["o_hit"] += 1; agg["o_tot"] += 1
-                    elif data.get("Other Club") == "❌": agg["o_tot"] += 1
+                    elif data.get("Other Club") == "❌": agg["o_tot"] += 1; agg["o_pen"] += pen_val
                     
                     if data.get("GIR") == "✅": agg["gir"] += 1
                     if data.get("GIR < 5m") == "✅": agg["gir_less_5"] += 1
