@@ -21,28 +21,22 @@ st.markdown("""
     .material-symbols-rounded, .material-icons, [data-testid="stIconMaterial"], [class*="stIcon"] { font-family: 'Material Symbols Rounded', sans-serif !important; }
     h1, h2, h3, h4, h5, h6 { font-family: 'Playfair Display', serif !important; font-weight: 600 !important; }
 
-    /* 5. Keep our larger slider thumb styling */
+    /* 3. Keep our larger slider thumb styling */
     div[data-baseweb="slider"] div[role="slider"] { height: 24px !important; width: 24px !important; border-radius: 50% !important; box-shadow: 0 0 4px rgba(0,0,0,0.3) !important; }
     div[data-baseweb="slider"] div[data-testid="stThumbValue"] { font-size: 16px !important; font-weight: bold !important; transform: translateY(-8px) !important; font-family: 'Montserrat', sans-serif !important; }
 
-    /* 6. MOBILE OPTIMIZATIONS: Force speed logger columns to stay horizontal on phones */
-    @media (max-width: 768px) {
-        div[data-testid="stHorizontalBlock"] {
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            overflow-x: hidden !important;
-        }
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            min-width: 0 !important;
-            padding: 0 2px !important;
-        }
-        div[data-testid="stHorizontalBlock"] button {
-            padding: 0px !important;
-            min-height: 35px !important;
-        }
-        div[data-testid="stHorizontalBlock"] button p {
-            font-size: 11px !important;
-        }
+    /* 4. COMPACT SPACING: Shrink dead whitespace and tighten buttons globally */
+    div[data-testid="stVerticalBlock"] > div {
+        padding-bottom: 0.1rem !important;
+        padding-top: 0.1rem !important;
+    }
+    div[data-testid="stHorizontalBlock"] button {
+        min-height: 40px !important; 
+        padding-top: 0.2rem !important;
+        padding-bottom: 0.2rem !important;
+    }
+    hr {
+        margin: 0.5em 0 !important; /* Tighter dividers */
     }
     </style>
 """, unsafe_allow_html=True)
@@ -758,7 +752,6 @@ else:
                 def section_header(title): st.markdown(f"<div style='font-weight: 800; color: #1A237E; margin-top: 5px; margin-bottom: 2px; font-size: 0.9em; letter-spacing: 0.5px;'>{title}</div>", unsafe_allow_html=True)
 
                 with st.container(border=True):
-                    st.markdown("<div class='mobile-keep-row nav-row' style='display:none;'></div>", unsafe_allow_html=True)
                     col_prev, col_curr, col_next = st.columns([1, 2, 1])
                     with col_prev:
                         if st.button("⬅️ Prev", key="cpc_top_prev", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
@@ -773,7 +766,6 @@ else:
                     slim_divider()
 
                     def render_btn_row(category, options, subtext=None, disabled=False):
-                        st.markdown("<div class='mobile-keep-row btn-row' style='display:none;'></div>", unsafe_allow_html=True)
                         cols = st.columns([2.8] + [1.2]*len(options)) 
                         if subtext: cols[0].markdown(f"<div style='margin-top: 2px; line-height: 1.1;'><b>{category}</b><br><span style='font-size: 0.7em; color: gray;'>{subtext}</span></div>", unsafe_allow_html=True)
                         else: cols[0].markdown(f"<div style='margin-top: 8px;'><b>{category}</b></div>", unsafe_allow_html=True)
@@ -936,7 +928,6 @@ else:
                     render_btn_row("Lag Putting", ["✅", "❌"], "Putts over 18ft finishing within 1 putter length")
                     st.markdown("<div style='margin-top: 8px;'><b>Strokes Gained Putting</b></div>", unsafe_allow_html=True)
                     with st.container(border=True):
-                        st.markdown("<div class='mobile-keep-row putt-row' style='display:none;'></div>", unsafe_allow_html=True)
                         c_dist, c_putts = st.columns([3, 2])
                         c_dist.caption("1st Putt Distance (ft)")
                         current_dist = int(active_data["Putt Dist (ft)"]) if active_data["Putt Dist (ft)"] != "" else 0
@@ -956,7 +947,6 @@ else:
                             st.info(f"**Hole SG Putting:** {hole_sg:+.2f}")
 
                     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-                    st.markdown("<div class='mobile-keep-row nav-row' style='display:none;'></div>", unsafe_allow_html=True)
                     b_col_prev, b_col_curr, b_col_next = st.columns([1, 2, 1])
                     with b_col_prev:
                         if st.button("⬅️ Prev", key="bot_prev_cpc", use_container_width=True, disabled=(st.session_state.cpc_hole == 1)):
