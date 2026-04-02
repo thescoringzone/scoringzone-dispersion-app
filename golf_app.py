@@ -723,10 +723,8 @@ else:
             if existing_speed_data and isinstance(existing_speed_data, dict) and "1" in existing_speed_data:
                 if "cpc_notepad" not in st.session_state:
                     # --- FIX: HEAL OLD DATA ---
-                    # Loop through every hole and every required category
                     for h_key in existing_speed_data:
                         for cat in categories:
-                            # If a category (like 'Driver Penalty') is missing, add it as a blank string
                             if cat not in existing_speed_data[h_key]:
                                 existing_speed_data[h_key][cat] = ""
                                 
@@ -741,7 +739,6 @@ else:
             c1, c2 = st.columns(2)
             fetched_gross = current_stats.get('gross_score', 0)
             default_gross = int(fetched_gross) if fetched_gross > 0 else 72
-            # BUG FIX: Attached CID to keys to prevent Round state bleed
             pr_gross = c1.number_input("Gross Score", min_value=0, max_value=150, value=default_gross, step=1, key=f"cpc_fast_gross_{cid}")
             pr_to_par = c2.number_input("Score to Par (e.g., -2 or +3)", value=current_stats.get('to_par', 0), step=1, key=f"cpc_fast_par_{cid}")
             st.divider()
@@ -774,12 +771,10 @@ else:
                         if subtext: cols[0].markdown(f"<div style='margin-top: 2px; line-height: 1.1;'><b>{category}</b><br><span style='font-size: 0.7em; color: gray;'>{subtext}</span></div>", unsafe_allow_html=True)
                         else: cols[0].markdown(f"<div style='margin-top: 8px;'><b>{category}</b></div>", unsafe_allow_html=True)
                         for i, opt in enumerate(options):
-                            # CHANGE THIS LINE TO USE .get()
                             is_selected = st.session_state.cpc_notepad[active_h].get(category, "") == str(opt)
                             
                             btn_type = "primary" if is_selected else "secondary"
                             if cols[i+1].button(str(opt), key=f"cpc_{active_h}_{category}_{opt}_{cid}", type=btn_type, use_container_width=True, disabled=disabled):
-                                # ALSO USE SETTING LOGIC SAFELY
                                 st.session_state.cpc_notepad[active_h][category] = "" if is_selected else str(opt)
                                 
                                 if category == "GIR" and st.session_state.cpc_notepad[active_h].get("GIR") == "":
@@ -790,11 +785,9 @@ else:
                     section_header("🚀 LONG GAME")
                     render_btn_row("Driving", ["✅", "❌"], "Driver off the tee")
 
-                    # Use .get() here to prevent the crash on line 789/790
                     if active_data.get("Driving") == "❌":
                         render_btn_row("Driver Penalty", ["0", "+1", "+2", "+3", "+4"], "Penalty strokes with Driver")
                     else:
-                        # Safely set the key even if it didn't exist before
                         st.session_state.cpc_notepad[active_h]["Driver Penalty"] = ""
                         
                     render_btn_row("Other Club", ["✅", "❌"], "Other club off the tee")
@@ -803,8 +796,8 @@ else:
                     else:
                         st.session_state.cpc_notepad[active_h]["Other Penalty"] = ""
                     
-                    active_driver = active_data["Driving"] in ["✅", "❌"]
-                    active_other = active_data["Other Club"] in ["✅", "❌"]
+                    active_driver = active_data.get("Driving") in ["✅", "❌"]
+                    active_other = active_data.get("Other Club") in ["✅", "❌"]
             
                     if active_driver or active_other:
                         r_label = "OTT: Driver" if active_driver else "OTT: Others"
@@ -865,7 +858,7 @@ else:
                             
                     if sz_dist != "Select Scoring Zone Shot":
                         r_label = sz_dist.replace("m", "") 
-                        current_sz_score = active_data[sz_dist]
+                        current_sz_score = active_data.get(sz_dist, "")
                         if current_sz_score:
                             st.info(f"**Current Accumulated Score:** {current_sz_score}")
                         
@@ -886,13 +879,11 @@ else:
                             x_m = round((px / 500.0) * (2 * limit) - limit, 2)
                             y_m = round(limit - (py / 500.0) * (2 * limit), 2)
                             
-                            # 1. Save new shot to DB
                             supabase.table("shots").insert({"User": st.session_state.current_user, "Tournament": st.session_state.active_t, "Round": st.session_state.active_r, "Range": r_label, "X": x_m, "Y": y_m}).execute()
                             
-                            # 2. BUG FIX: Accumulate score directly in the notepad, bypassing the whole-round dataframe
                             current_val = active_data.get(sz_dist, "")
                             if current_val in ["", "E"]: current_int = 0
-                            else: current_int = int(current_val)
+                            else: current_int = int(current_val.replace("+", ""))
                             
                             d_new = np.sqrt(x_m**2 + y_m**2)
                             if d_new <= rb: shot_score = -1
@@ -914,20 +905,19 @@ else:
                             supabase.table("shots").delete().eq("id", int(df_sz.iloc[-1]['id'])).execute()
                             st.session_state[sz_click_tracker] = None 
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
-                            # Note: Undoing wipes the hole's score string so you can restart cleanly
                             st.session_state.cpc_notepad[active_h][sz_dist] = "" 
                             st.rerun(scope="fragment")
 
                     render_btn_row("GIR", ["✅"])
-                    render_btn_row("GIR < 5m", ["✅"], "GIR within 5m from hole", disabled=(active_data["GIR"] != "✅"))
+                    render_btn_row("GIR < 5m", ["✅"], "GIR within 5m from hole", disabled=(active_data.get("GIR", "") != "✅"))
                     slim_divider()
 
                     # --- 🪤 SHORT GAME ---
                     section_header("🪤 SHORT GAME")
                     render_btn_row("< 6ft", ["✅", "❌"], "Short game shots (under 50m) hit within 6ft of hole")
-                    render_btn_row("< 3ft", ["✅", "❌"], "Inside 3ft", disabled=(active_data["< 6ft"] != "✅"))
+                    render_btn_row("< 3ft", ["✅", "❌"], "Inside 3ft", disabled=(active_data.get("< 6ft", "") != "✅"))
                     
-                    ud_subtext = "<span style='color: #D32F2F;'>*Required</span>" if active_data["< 6ft"] != "" and active_data["Up & Down"] == "" else ""
+                    ud_subtext = "<span style='color: #D32F2F;'>*Required</span>" if active_data.get("< 6ft", "") != "" and active_data.get("Up & Down", "") == "" else ""
                     render_btn_row("Up & Down", ["✅", "❌"], subtext=ud_subtext)
                     render_btn_row("SGZ", ["+2", "+1", "E", "-1", "-2"], "Short Game Zone Score")
                     slim_divider()
@@ -939,11 +929,11 @@ else:
                     with st.container(border=True):
                         c_dist, c_putts = st.columns([3, 2])
                         c_dist.caption("1st Putt Distance (ft)")
-                        current_dist = int(active_data["Putt Dist (ft)"]) if active_data["Putt Dist (ft)"] != "" else 0
+                        current_dist = int(active_data.get("Putt Dist (ft)") or 0)
                         new_dist = c_dist.slider(f"Dist_Hole_{active_h}_{cid}", 0, 100, current_dist, key=f"dist_{active_h}_{cid}", label_visibility="collapsed")
                         
                         c_putts.caption("Putts")
-                        current_putts = int(active_data["Putts"]) if active_data["Putts"] != "" else 0
+                        current_putts = int(active_data.get("Putts") or 0)
                         new_putts = c_putts.radio(f"Putts_Hole_{active_h}_{cid}", [0, 1, 2, 3, 4], index=current_putts, horizontal=True, key=f"putts_{active_h}_{cid}", label_visibility="collapsed")
                         
                         if new_dist != current_dist or new_putts != current_putts:
@@ -968,7 +958,6 @@ else:
 
                 st.write("<br>", unsafe_allow_html=True)
                 with st.expander("📊 View Full Scorecard", expanded=False):
-                    # We use a display-specific category list here to merge the penalties visually
                     display_categories = ["Driving", "Other Club", "Penalty", "151-200m", "101-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
 
                     def calculate_totals(np):
@@ -983,7 +972,6 @@ else:
                                 t[cat] = f"{int((hits/tot)*100)}% ({hits}/{tot})" if tot > 0 else "-"
                                 
                             elif cat == "Penalty":
-                                # Sums both Driver and Other penalties for the total column
                                 pen_total = 0
                                 for h in valid_holes.values():
                                     dp = h.get("Driver Penalty", "")
@@ -1036,7 +1024,6 @@ else:
                     t_dict = calculate_totals(st.session_state.cpc_notepad) 
                     df = pd.DataFrame(st.session_state.cpc_notepad)
                     
-                    # Merge the two separated penalty columns back into one row for the visual display table
                     pen_row = []
                     for i in range(1, 19):
                         dp = st.session_state.cpc_notepad[str(i)].get("Driver Penalty", "")
@@ -1083,28 +1070,9 @@ else:
                     "putts_total": 0, "sg_putting": 0.0
                 }
                 
-                # --- 💾 MASTER SAVE FUNCTION ---
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("💾 Save Full Round Data", type="primary", use_container_width=True):
-                np_data = st.session_state.cpc_notepad
-                
-                # 1. Initialize our aggregate trackers matching the DB columns
-                agg = {
-                    "d_hit": 0, "d_tot": 0, "d_pen": 0, 
-                    "o_hit": 0, "o_tot": 0, "o_pen": 0,
-                    "gir": 0, "gir_less_5": 0,
-                    "sg_total": 0, "sg_inside_6": 0, "sg_inside_3": 0, "sg_ud": 0, "sgz_score": 0,
-                    "lag_success": 0, "lag_total": 0,
-                    "putts_total": 0, "sg_putting": 0.0
-                }
-                
-                # 2. Save the hole if ANY data was entered (covers chip-ins / 0 putts)
                 valid_holes = {k: v for k, v in np_data.items() if any(val != "" for val in v.values())}
                 
-                # 3. Aggregate the data
                 for h, data in valid_holes.items():
-                    
-                    # Evaluate Driver independently
                     if data.get("Driving") in ["✅", "❌"]:
                         if data["Driving"] == "✅": 
                             agg["d_hit"] += 1; agg["d_tot"] += 1
@@ -1114,7 +1082,6 @@ else:
                             if dp in ["+1", "+2", "+3", "+4", "1", "2", "3", "4"]:
                                 agg["d_pen"] += int(dp.replace("+", ""))
                     
-                    # Evaluate Other Club independently
                     if data.get("Other Club") in ["✅", "❌"]:
                         if data["Other Club"] == "✅": 
                             agg["o_hit"] += 1; agg["o_tot"] += 1
@@ -1124,11 +1091,9 @@ else:
                             if op in ["+1", "+2", "+3", "+4", "1", "2", "3", "4"]:
                                 agg["o_pen"] += int(op.replace("+", ""))
                     
-                    # Approach
                     if data.get("GIR") == "✅": agg["gir"] += 1
                     if data.get("GIR < 5m") == "✅": agg["gir_less_5"] += 1
                     
-                    # Short Game
                     is_sg = False
                     if data.get("< 6ft") in ["✅", "❌"]:
                         is_sg = True
@@ -1144,12 +1109,10 @@ else:
                         
                     if is_sg: agg["sg_total"] += 1
                     
-                    # SGZ Score
                     if data.get("SGZ") and data["SGZ"] != "E":
                         try: agg["sgz_score"] += int(data["SGZ"].replace("+", ""))
                         except ValueError: pass
                         
-                    # Putting
                     if data.get("Lag Putting") == "✅": agg["lag_success"] += 1; agg["lag_total"] += 1
                     elif data.get("Lag Putting") == "❌": agg["lag_total"] += 1
                     
@@ -1159,10 +1122,8 @@ else:
                     if putts > 0: agg["putts_total"] += putts
                     if putts > 0 and dist > 0: agg["sg_putting"] += (get_expected_putts(dist) - putts)
                 
-                # Clean up float math for the database
                 agg["sg_putting"] = round(agg["sg_putting"], 2)
 
-                # 4. Construct the final payload for Supabase
                 update_payload = {
                     "gross_score": st.session_state.get(f"cpc_fast_gross_{cid}", current_stats.get('gross_score', 0)),
                     "to_par": st.session_state.get(f"cpc_fast_par_{cid}", current_stats.get('to_par', 0)),
@@ -1174,7 +1135,6 @@ else:
                 
                 update_payload.update(agg)
                 
-                # 5. Execute Database Update
                 try:
                     supabase.table("round_stats").update(update_payload).eq("id", cid).execute()
                     st.success(f"✅ All statistics for {st.session_state.active_r} have been successfully aggregated and saved to the vault.")
