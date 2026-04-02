@@ -1082,7 +1082,9 @@ else:
             
             ms_val = c_m1.slider("Mental Score (M)", 0, 100, current_ms, key=f"ms_final_{cid}")
             js_val = c_m2.slider("Judgement Score (J)", 0, 100, current_js, key=f"js_final_{cid}")
-            cm_val = c_m3.slider("Course Management (CM)", 0.0, 10.0, current_cm, step=0.5, key=f"cm_final_{cid}")
+            
+            # FIX: Updated step to 0.05 for granular Course Management scoring
+            cm_val = c_m3.slider("Course Management (CM)", 0.0, 10.0, current_cm, step=0.05, key=f"cm_final_{cid}")
 
             # --- 💾 MASTER SAVE FUNCTION ---
             st.markdown("<br>", unsafe_allow_html=True)
