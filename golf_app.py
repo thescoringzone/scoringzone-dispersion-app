@@ -612,7 +612,8 @@ else:
                 st.markdown(f"### {r_name}")
                 if st.button(f"Edit Data", use_container_width=True, key=f"btn_{r_name}"):
                     st.session_state.active_r = r_name
-                    st.session_state.workflow_step = "Speed Logger"
+                    # FIX 1: Update navigation state
+                    st.session_state.workflow_step = "Stats Input" 
                     st.session_state.page = "Data Entry"
                     
                     if "cpc_notepad" in st.session_state: del st.session_state["cpc_notepad"]
@@ -726,10 +727,10 @@ else:
     # --- PAGE: DATA ENTRY ---
     elif st.session_state.page == "Data Entry":
         
-        steps = ["Speed Logger", "Tournament Dashboard"] 
+        # FIX 2: Update the toggle menu strings
+        steps = ["Stats Input", "Tournament Dashboard"] 
         selected_step = st.radio("Phase:", steps, horizontal=True, index=steps.index(st.session_state.workflow_step) if st.session_state.workflow_step in steps else 0)
         
-        # DYNAMIC TITLE FIX
         if selected_step == "Tournament Dashboard":
             st.title(f"{st.session_state.active_t} - Dashboard")
         else:
@@ -743,7 +744,9 @@ else:
         current_stats = load_round_stats(st.session_state.current_user, st.session_state.active_t, st.session_state.active_r)
         cid = current_stats['id']
 
-        if st.session_state.workflow_step == "Speed Logger":
+        # FIX 3: Update the logic gate
+        if st.session_state.workflow_step == "Stats Input":
+            
             # Separated Driver Penalty and Other Penalty
             categories = ["Driving", "Driver Penalty", "Other Club", "Other Penalty", "151-200m", "101-150m", "50-100m", "GIR", "GIR < 5m", "< 6ft", "< 3ft", "Up & Down", "SGZ", "Lag Putting", "Putt Dist (ft)", "Putts"]
 
