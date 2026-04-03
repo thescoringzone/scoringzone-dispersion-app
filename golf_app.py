@@ -837,7 +837,19 @@ else:
                             (st.session_state.shots_data['Range'] == r_label)
                         ]
                         
-                        val = streamlit_image_coordinates(create_tee_image(df_v, r_label), key=f"img_{r_label}_{active_h}_static_{cid}")
+                        # FIX 2: Cache the image to prevent scroll jumps on other button clicks
+                        img_cache_key = f"cache_tee_{r_label}_{active_h}_{cid}_{len(df_v)}"
+                        if img_cache_key not in st.session_state:
+                            st.session_state[img_cache_key] = create_tee_image(df_v, r_label)
+                            
+                        # FIX 1: Version control to destroy frontend memory on Undo
+                        v_key = f"v_tee_{r_label}_{active_h}_{cid}"
+                        if v_key not in st.session_state: st.session_state[v_key] = 0
+                        
+                        val = streamlit_image_coordinates(
+                            st.session_state[img_cache_key], 
+                            key=f"img_{r_label}_{active_h}_{cid}_v{st.session_state[v_key]}"
+                        )
                         
                         click_tracker_key = f"last_click_{r_label}_{active_h}_{cid}"
                         if val and val != st.session_state.get(click_tracker_key):
@@ -855,6 +867,7 @@ else:
                         if not df_v.empty and st.button(f"Undo Last Tee Shot", key=f"un_tee_{active_h}_{cid}"):
                             supabase.table("shots").delete().eq("id", int(df_v.iloc[-1]['id'])).execute()
                             st.session_state[click_tracker_key] = None 
+                            st.session_state[v_key] += 1 # Forces widget rebuild to wipe ghost dot
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
                             st.rerun(scope="fragment")
 
@@ -896,7 +909,20 @@ else:
                             (st.session_state.shots_data['Range'] == r_label)
                         ]
                         
-                        sz_val = streamlit_image_coordinates(create_target_image(df_sz, r_label), key=f"img_sz_{active_h}_{r_label}_static_{cid}")
+                        # FIX 2: Cache the image to prevent scroll jumps on other button clicks
+                        img_cache_sz = f"cache_sz_{r_label}_{active_h}_{cid}_{len(df_sz)}"
+                        if img_cache_sz not in st.session_state:
+                            st.session_state[img_cache_sz] = create_target_image(df_sz, r_label)
+                            
+                        # FIX 1: Version control to destroy frontend memory on Undo
+                        v_key_sz = f"v_sz_{r_label}_{active_h}_{cid}"
+                        if v_key_sz not in st.session_state: st.session_state[v_key_sz] = 0
+                        
+                        sz_val = streamlit_image_coordinates(
+                            st.session_state[img_cache_sz], 
+                            key=f"img_sz_{active_h}_{r_label}_{cid}_v{st.session_state[v_key_sz]}"
+                        )
+                        
                         sz_click_tracker = f"last_sz_click_{r_label}_{active_h}_{cid}"
                         
                         if sz_val and sz_val != st.session_state.get(sz_click_tracker):
@@ -932,6 +958,7 @@ else:
                         if not df_sz.empty and st.button(f"Undo Last Approach", key=f"un_sz_{active_h}_{cid}"):
                             supabase.table("shots").delete().eq("id", int(df_sz.iloc[-1]['id'])).execute()
                             st.session_state[sz_click_tracker] = None 
+                            st.session_state[v_key_sz] += 1 # Forces widget rebuild to wipe ghost dot
                             st.session_state.shots_data = load_shots(st.session_state.current_user)
                             st.session_state.cpc_notepad[active_h][sz_dist] = "" 
                             st.rerun(scope="fragment")
