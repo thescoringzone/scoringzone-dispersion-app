@@ -68,7 +68,8 @@ def get_expected_putts(distance):
 
 # --- 2. DATA LOADING & AUTO-SAVE CALLBACKS ---
 def load_shots(current_user):
-    response = supabase.table("shots").select("*").eq("User", current_user).execute()
+    # FIX: Explicitly bypassed Supabase's 1000-row limit to retrieve all historical dots
+    response = supabase.table("shots").select("*").eq("User", current_user).limit(15000).execute()
     if response.data:
         return pd.DataFrame(response.data)
     return pd.DataFrame(columns=["id", "User", "Tournament", "Round", "Range", "X", "Y"])
@@ -82,39 +83,26 @@ def load_round_stats(current_user, tournament, round_num):
         "user_name": current_user, 
         "tournament": tournament, 
         "round_num": round_num,
-        "gross_score": 0, 
-        "to_par": 0, 
-        "gir": 0, 
-        "gir_less_5": 0, 
-        "sg_total": 0, 
-        "sg_inside_6": 0, 
-        "sg_inside_3": 0, 
-        "sg_ud": 0, 
-        "sgz_score": 0,
-        "putts_total": 0, 
-        "sg_putting": 0.0, 
-        "lag_success": 0, 
-        "lag_total": 0, 
-        "mental_score": 0, 
-        "judgement_score": 0, 
-        "cm_score": 0, 
+        "gross_score": 0, "to_par": 0, 
+        "gir": 0, "gir_less_5": 0, 
+        "sg_total": 0, "sg_inside_6": 0, "sg_inside_3": 0, "sg_ud": 0, "sgz_score": 0,
+        "putts_total": 0, "sg_putting": 0.0, 
+        "lag_success": 0, "lag_total": 0, 
+        "mental_score": 0, "judgement_score": 0, "cm_score": 0, 
         "putting_holes": None,
-        "d_hit": 0, 
-        "d_tot": 0, 
-        "d_pen": 0, 
-        "o_hit": 0, 
-        "o_tot": 0, 
-        "o_pen": 0
+        "d_hit": 0, "d_tot": 0, "d_pen": 0, 
+        "o_hit": 0, "o_tot": 0, "o_pen": 0
     }
     res = supabase.table("round_stats").insert(blank).execute()
     return res.data[0]
 
 def load_all_stats(current_user):
-    response = supabase.table("round_stats").select("*").eq("user_name", current_user).execute()
+    # FIX: Increased capacity for round tracking
+    response = supabase.table("round_stats").select("*").eq("user_name", current_user).limit(10000).execute()
     return response.data if response.data else []
 
 def load_all_tournament_stats(current_user, tournament):
-    response = supabase.table("round_stats").select("*").eq("user_name", current_user).eq("tournament", tournament).execute()
+    response = supabase.table("round_stats").select("*").eq("user_name", current_user).eq("tournament", tournament).limit(5000).execute()
     return response.data if response.data else []
 
 def auto_save_stat(db_column, widget_key, record_id):
@@ -570,17 +558,18 @@ else:
         t_from_stats = [s['tournament'] for s in raw_stats] if raw_stats else []
         unique_t = list(set(t_from_shots + t_from_stats))
         
-        # RECENT SORTING FIX: Check max database IDs for each tournament
+        # RECENT SORTING FIX: Safely parse highest database IDs for each tournament
         t_recency = {}
         for t in unique_t:
             max_id = 0
             t_s = [s for s in raw_stats if s['tournament'] == t]
-            if t_s: max_id = max(s['id'] for s in t_s)
+            if t_s: max_id = max(int(s['id']) for s in t_s)
             
             if not st.session_state.shots_data.empty:
                 df_t = st.session_state.shots_data[st.session_state.shots_data['Tournament'] == t]
                 if not df_t.empty:
-                    max_shot_id = df_t['id'].max()
+                    # Explicitly convert to Python int to guarantee clean sorting
+                    max_shot_id = int(df_t['id'].max())
                     max_id = max(max_id, max_shot_id)
                     
             t_recency[t] = max_id
